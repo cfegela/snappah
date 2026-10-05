@@ -38,16 +38,16 @@ class MainActivity : ComponentActivity() {
     private var hasCameraPermission by mutableStateOf(false)
 
     private val permissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasCameraPermission = isGranted
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        hasCameraPermission = permissions[Manifest.permission.CAMERA] == true
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        checkCameraPermission()
+        checkAndRequestPermissions()
 
         setContent {
             SnappahTheme {
@@ -56,7 +56,12 @@ class MainActivity : ComponentActivity() {
                 } else {
                     PermissionDeniedScreen(
                         onRequestPermission = {
-                            permissionLauncher.launch(Manifest.permission.CAMERA)
+                            permissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.CAMERA,
+                                    Manifest.permission.RECORD_AUDIO
+                                )
+                            )
                         }
                     )
                 }
@@ -66,17 +71,27 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        checkCameraPermission()
+        checkAndRequestPermissions()
     }
 
-    private fun checkCameraPermission() {
-        hasCameraPermission = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.CAMERA
+    private fun checkAndRequestPermissions() {
+        val cameraGranted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
 
-        if (!hasCameraPermission) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
+        val audioGranted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        hasCameraPermission = cameraGranted
+
+        // Request whichever permissions are still missing
+        val missing = buildList {
+            if (!cameraGranted) add(Manifest.permission.CAMERA)
+            if (!audioGranted) add(Manifest.permission.RECORD_AUDIO)
+        }
+        if (missing.isNotEmpty()) {
+            permissionLauncher.launch(missing.toTypedArray())
         }
     }
 }

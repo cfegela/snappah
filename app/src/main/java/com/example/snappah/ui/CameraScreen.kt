@@ -3,7 +3,9 @@ package com.example.snappah.ui
 import android.content.ContentValues
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.SoundPool
+import android.media.ToneGenerator
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
@@ -14,6 +16,13 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -21,7 +30,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -73,6 +83,9 @@ import java.util.Locale
 private const val TAG = "SnappahCamera"
 private const val SATURATION_BOOST = 1.15f // 15% saturation boost for WYSIWYG vibrant look
 
+// Recording indicator red
+private val RecordingRed = Color(0xFFE53935)
+
 @Composable
 fun CameraScreen() {
     val context = LocalContext.current
@@ -81,6 +94,9 @@ fun CameraScreen() {
     val coroutineScope = rememberCoroutineScope()
 
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
+    var activeRecording by remember { mutableStateOf<Recording?>(null) }
+    var isRecording by remember { mutableStateOf(false) }
     var isShutterFlashing by remember { mutableStateOf(false) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
@@ -107,13 +123,20 @@ fun CameraScreen() {
             .build()
         imageCapture = capture
 
+        val recorder = Recorder.Builder()
+            .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
+            .build()
+        val vc = VideoCapture.withOutput(recorder)
+        videoCapture = vc
+
         try {
             provider.unbindAll()
             provider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
                 preview,
-                capture
+                capture,
+                vc
             )
         } catch (exc: Exception) {
             Log.e(TAG, "Camera binding failed", exc)
@@ -163,9 +186,11 @@ fun CameraScreen() {
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onDoubleTap = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                isStreamStreaming = false
-                                isFrontCamera = !isFrontCamera
+                                if (!isRecording) {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    isStreamStreaming = false
+                                    isFrontCamera = !isFrontCamera
+                                }
                             }
                         )
                     }
@@ -229,28 +254,82 @@ fun CameraScreen() {
                 contentAlignment = Alignment.Center
             ) {
                 ShutterButton(
-                    onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        // Play vintage mechanical shutter sound at 40% volume
-                        soundPool.play(soundId, 0.40f, 0.40f, 1, 0, 1.0f)
-                        // Trigger visual shutter flash
-                        coroutineScope.launch {
-                            isShutterFlashing = true
-                            delay(60)
-                            isShutterFlashing = false
-                        }
-
-                        takePhoto(
-                            context = context,
-                            imageCapture = imageCapture,
-                            onPhotoSaved = { uriString ->
-                                Log.d(TAG, "Photo saved: $uriString")
-                            },
-                            onError = { exc ->
-                                Toast.makeText(context, "Capture error: ${exc.message}", Toast.LENGTH_SHORT).show()
-                                Log.e(TAG, "Capture failed", exc)
+                    isRecording = isRecording,
+                    onTap = {
+                        if (isRecording) {
+                            // Flip state instantly so the button turns blue right away.
+                            // File finalization continues in the background.
+                            isRecording = false
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            activeRecording?.stop()
+                            activeRecording = null
+                            // Beep to confirm recording stopped
+                            coroutineScope.launch(Dispatchers.IO) {
+                                try {
+                                    val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 60)
+                                    toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+                                    delay(200)
+                                    toneGen.release()
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Stop beep failed", e)
+                                }
                             }
-                        )
+                        } else {
+                            // Take photo
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            soundPool.play(soundId, 0.40f, 0.40f, 1, 0, 1.0f)
+                            coroutineScope.launch {
+                                isShutterFlashing = true
+                                delay(60)
+                                isShutterFlashing = false
+                            }
+                            takePhoto(
+                                context = context,
+                                imageCapture = imageCapture,
+                                onPhotoSaved = { uriString ->
+                                    Log.d(TAG, "Photo saved: $uriString")
+                                },
+                                onError = { exc ->
+                                    Toast.makeText(context, "Capture error: ${exc.message}", Toast.LENGTH_SHORT).show()
+                                    Log.e(TAG, "Capture failed", exc)
+                                }
+                            )
+                        }
+                    },
+                    onLongPress = {
+                        if (!isRecording) {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            startVideoRecording(
+                                context = context,
+                                videoCapture = videoCapture,
+                                onRecordingStarted = { recording ->
+                                    activeRecording = recording
+                                    isRecording = true
+                                    // Beep to signal recording start
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        try {
+                                            val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 60)
+                                            toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+                                            delay(200)
+                                            toneGen.release()
+                                        } catch (e: Exception) {
+                                            Log.w(TAG, "Beep failed", e)
+                                        }
+                                    }
+                                },
+                                onRecordingFinalized = { savedUri ->
+                                    isRecording = false
+                                    activeRecording = null
+                                    Log.d(TAG, "Video saved: $savedUri")
+                                },
+                                onError = { exc ->
+                                    isRecording = false
+                                    activeRecording = null
+                                    Toast.makeText(context, "Video error: ${exc.message}", Toast.LENGTH_SHORT).show()
+                                    Log.e(TAG, "Video recording failed", exc)
+                                }
+                            )
+                        }
                     }
                 )
             }
@@ -272,52 +351,113 @@ fun CameraScreen() {
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun ShutterButton(
-    onClick: () -> Unit,
+    isRecording: Boolean,
+    onTap: () -> Unit,
+    onLongPress: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val ringColor = if (isRecording) RecordingRed else SnappahBlue
+    val innerColor = if (isRecording) RecordingRed else SnappahBlue
 
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .size(64.dp)
             .clip(CircleShape)
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = ripple(bounded = true, radius = 32.dp, color = Color.Gray),
-                onClick = onClick
+                onClick = onTap,
+                onLongClick = onLongPress
             )
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val center = this.center
             val radius = size.minDimension / 2f
 
-            // White base circle (matching app launcher icon background)
+            // White base circle
             drawCircle(
                 color = White,
                 radius = radius,
                 center = center
             )
 
-            // Outer blue ring (matching app icon outer band)
+            // Outer ring — blue normally, red while recording
             val outerRingRadius = radius * (52f / 72f)
             val strokeWidth = radius * (3f / 36f)
             drawCircle(
-                color = SnappahBlue,
+                color = ringColor,
                 radius = outerRingRadius,
                 center = center,
                 style = Stroke(width = strokeWidth)
             )
 
-            // Inner blue filled circle (matching app icon inner shutter core)
+            // Inner filled circle — blue normally, red while recording
             val innerCircleRadius = radius * (36f / 72f)
             drawCircle(
-                color = SnappahBlue,
+                color = innerColor,
                 radius = innerCircleRadius,
                 center = center
             )
         }
+    }
+}
+
+private fun startVideoRecording(
+    context: Context,
+    videoCapture: VideoCapture<Recorder>?,
+    onRecordingStarted: (Recording) -> Unit,
+    onRecordingFinalized: (String) -> Unit,
+    onError: (Exception) -> Unit
+) {
+    val vc = videoCapture ?: run {
+        onError(IllegalStateException("VideoCapture not ready"))
+        return
+    }
+
+    val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+    val filename = "SNAP_VID_$timeStamp.mp4"
+
+    val contentValues = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+        put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.Video.Media.RELATIVE_PATH, "DCIM/Snappah")
+        }
+    }
+
+    val outputOptions = MediaStoreOutputOptions.Builder(
+        context.contentResolver,
+        MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+    )
+        .setContentValues(contentValues)
+        .build()
+
+    try {
+        val recording = vc.output
+            .prepareRecording(context, outputOptions)
+            .withAudioEnabled()
+            .start(ContextCompat.getMainExecutor(context)) { event ->
+                when (event) {
+                    is VideoRecordEvent.Start -> {
+                        Log.d(TAG, "Recording started")
+                    }
+                    is VideoRecordEvent.Finalize -> {
+                        if (!event.hasError()) {
+                            onRecordingFinalized(event.outputResults.outputUri.toString())
+                        } else {
+                            onError(Exception("Recording finalized with error code: ${event.error}"))
+                        }
+                    }
+                    else -> {}
+                }
+            }
+        onRecordingStarted(recording)
+    } catch (e: Exception) {
+        onError(e)
     }
 }
 
