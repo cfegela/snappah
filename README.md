@@ -1,4 +1,4 @@
-# Snappah 📸
+# Snappah <img src="assets/icon.png" width="32" height="32" alt="Snappah Icon" valign="middle">
 
 A minimal, distraction-free point-and-shoot camera application for Android built with **Jetpack Compose** and **CameraX**.
 
@@ -62,6 +62,9 @@ snappah/
 │   │           ├── values/                   # Strings, theme configuration
 │   │           └── mipmap/                   # Adaptive launcher icon definitions
 │   └── build.gradle.kts                      # App-level dependencies and Android configuration
+├── assets/
+│   ├── icon.png                              # App icon image (high-resolution)
+│   └── icon.svg                              # Vector app icon source
 ├── gradle/wrapper/                           # Gradle wrapper binaries & configuration
 ├── build.gradle.kts                          # Root build script
 ├── settings.gradle.kts                       # Repository & project module settings
