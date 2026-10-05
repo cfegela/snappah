@@ -52,19 +52,26 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.snappah.ui.theme.Black
 import com.example.snappah.ui.theme.SnappahBlue
 import com.example.snappah.ui.theme.White
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileInputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 private const val TAG = "SnappahCamera"
+private const val SATURATION_BOOST = 1.15f // 15% saturation boost for WYSIWYG vibrant look
 
 @Composable
 fun CameraScreen() {
@@ -163,10 +170,28 @@ fun CameraScreen() {
                         )
                     }
             ) {
+                val saturationPaint = remember {
+                    android.graphics.Paint().apply {
+                        colorFilter = android.graphics.ColorMatrixColorFilter(
+                            android.graphics.ColorMatrix().apply {
+                                setSaturation(SATURATION_BOOST)
+                            }
+                        )
+                    }
+                }
+
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
                         PreviewView(ctx).apply {
+                            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, saturationPaint)
+                            setOnHierarchyChangeListener(object : android.view.ViewGroup.OnHierarchyChangeListener {
+                                override fun onChildViewAdded(parent: android.view.View?, child: android.view.View?) {
+                                    child?.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, saturationPaint)
+                                }
+                                override fun onChildViewRemoved(parent: android.view.View?, child: android.view.View?) {}
+                            })
                             setBackgroundColor(android.graphics.Color.BLACK)
                             scaleType = PreviewView.ScaleType.FIT_CENTER
                             previewStreamState.observe(lifecycleOwner) { state ->
@@ -300,10 +325,51 @@ private fun takePhoto(
     context: Context,
     imageCapture: ImageCapture?,
     onPhotoSaved: (String) -> Unit,
-    onError: (ImageCaptureException) -> Unit
+    onError: (Exception) -> Unit
 ) {
     val capture = imageCapture ?: return
 
+    val tempFile = try {
+        File.createTempFile("snap_raw_", ".jpg", context.cacheDir)
+    } catch (e: Exception) {
+        onError(e)
+        return
+    }
+
+    val outputOptions = ImageCapture.OutputFileOptions.Builder(tempFile).build()
+
+    capture.takePicture(
+        outputOptions,
+        ContextCompat.getMainExecutor(context),
+        object : ImageCapture.OnImageSavedCallback {
+            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        saveSaturatedPhoto(context, tempFile, onPhotoSaved)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error processing saturated photo", e)
+                        withContext(Dispatchers.Main) {
+                            onError(e)
+                        }
+                    } finally {
+                        tempFile.delete()
+                    }
+                }
+            }
+
+            override fun onError(exception: ImageCaptureException) {
+                tempFile.delete()
+                onError(exception)
+            }
+        }
+    )
+}
+
+private suspend fun saveSaturatedPhoto(
+    context: Context,
+    tempFile: File,
+    onPhotoSaved: (String) -> Unit
+) {
     val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
     val filename = "SNAP_$timeStamp.jpg"
 
@@ -312,27 +378,112 @@ private fun takePhoto(
         put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Snappah")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
         }
     }
 
-    val outputOptions = ImageCapture.OutputFileOptions.Builder(
-        context.contentResolver,
+    val uri = context.contentResolver.insert(
         MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
         contentValues
-    ).build()
+    ) ?: throw IllegalStateException("Failed to create MediaStore entry")
 
-    capture.takePicture(
-        outputOptions,
-        ContextCompat.getMainExecutor(context),
-        object : ImageCapture.OnImageSavedCallback {
-            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                val uri = outputFileResults.savedUri?.toString() ?: filename
-                onPhotoSaved(uri)
+    try {
+        val srcExif = try {
+            android.media.ExifInterface(tempFile.absolutePath)
+        } catch (e: Exception) {
+            null
+        }
+
+        val bitmap = BitmapFactory.decodeFile(tempFile.absolutePath)
+        if (bitmap != null) {
+            val resultBitmap = Bitmap.createBitmap(
+                bitmap.width,
+                bitmap.height,
+                bitmap.config ?: Bitmap.Config.ARGB_8888
+            )
+            val canvas = android.graphics.Canvas(resultBitmap)
+            val paint = android.graphics.Paint().apply {
+                colorFilter = android.graphics.ColorMatrixColorFilter(
+                    android.graphics.ColorMatrix().apply {
+                        setSaturation(SATURATION_BOOST)
+                    }
+                )
             }
+            canvas.drawBitmap(bitmap, 0f, 0f, paint)
+            bitmap.recycle()
 
-            override fun onError(exception: ImageCaptureException) {
-                onError(exception)
+            context.contentResolver.openOutputStream(uri)?.use { outStream ->
+                resultBitmap.compress(Bitmap.CompressFormat.JPEG, 98, outStream)
+            }
+            resultBitmap.recycle()
+        } else {
+            FileInputStream(tempFile).use { input ->
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    input.copyTo(output)
+                }
             }
         }
+
+        if (srcExif != null) {
+            try {
+                context.contentResolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+                    val destExif = android.media.ExifInterface(pfd.fileDescriptor)
+                    copyExifAttributes(srcExif, destExif)
+                    destExif.saveAttributes()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to copy EXIF attributes", e)
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            contentValues.clear()
+            contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+            context.contentResolver.update(uri, contentValues, null, null)
+        }
+
+        withContext(Dispatchers.Main) {
+            onPhotoSaved(uri.toString())
+        }
+    } catch (e: Exception) {
+        context.contentResolver.delete(uri, null, null)
+        throw e
+    }
+}
+
+private fun copyExifAttributes(
+    src: android.media.ExifInterface,
+    dest: android.media.ExifInterface
+) {
+    val attributes = arrayOf(
+        android.media.ExifInterface.TAG_ORIENTATION,
+        android.media.ExifInterface.TAG_DATETIME,
+        android.media.ExifInterface.TAG_DATETIME_DIGITIZED,
+        android.media.ExifInterface.TAG_DATETIME_ORIGINAL,
+        android.media.ExifInterface.TAG_EXPOSURE_TIME,
+        android.media.ExifInterface.TAG_F_NUMBER,
+        android.media.ExifInterface.TAG_FLASH,
+        android.media.ExifInterface.TAG_FOCAL_LENGTH,
+        android.media.ExifInterface.TAG_GPS_ALTITUDE,
+        android.media.ExifInterface.TAG_GPS_ALTITUDE_REF,
+        android.media.ExifInterface.TAG_GPS_DATESTAMP,
+        android.media.ExifInterface.TAG_GPS_LATITUDE,
+        android.media.ExifInterface.TAG_GPS_LATITUDE_REF,
+        android.media.ExifInterface.TAG_GPS_LONGITUDE,
+        android.media.ExifInterface.TAG_GPS_LONGITUDE_REF,
+        android.media.ExifInterface.TAG_GPS_PROCESSING_METHOD,
+        android.media.ExifInterface.TAG_GPS_TIMESTAMP,
+        android.media.ExifInterface.TAG_IMAGE_LENGTH,
+        android.media.ExifInterface.TAG_IMAGE_WIDTH,
+        android.media.ExifInterface.TAG_ISO_SPEED_RATINGS,
+        android.media.ExifInterface.TAG_MAKE,
+        android.media.ExifInterface.TAG_MODEL,
+        android.media.ExifInterface.TAG_WHITE_BALANCE
     )
+    for (attr in attributes) {
+        val value = src.getAttribute(attr)
+        if (value != null) {
+            dest.setAttribute(attr, value)
+        }
+    }
 }
