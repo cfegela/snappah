@@ -1,4 +1,4 @@
-# Snappah <img src="assets/icon.png" width="32" height="32" alt="Snappah Icon" valign="middle">
+# <img src="assets/icon.png" width="40" height="40" alt="Snappah Icon" valign="middle"> Snappah 
 
 A minimal, distraction-free point-and-shoot camera application for Android built with **Jetpack Compose** and **CameraX**.
 
@@ -10,9 +10,7 @@ Snappah strips away the clutter of modern camera apps—no menus, no sliders, no
 
 - **Distraction-Free UI**: Pure black OLED-friendly interface with an unadorned viewfinder and a signature tactile shutter button styled to match the app icon.
 - **Native Sensor Framing**: 3:4 aspect ratio viewfinder vertically centered with letterboxing, displaying the uncropped native sensor view.
-- **WYSIWYG 15% Saturation Boost**:
-  - **Live Preview**: Real-time hardware-accelerated 15% saturation boost (`1.15f`) applied directly to the viewfinder at full sensor frame rates.
-  - **Capture Pipeline**: Matching 15% saturation boost applied to captured photos prior to saving, preserving authentic colors, orientation, and full EXIF camera metadata.
+- **WYSIWYG 15% Saturation Boost**: A subtle "Canon"-style color boost
 - **Double-Tap Lens Switch**: Quick double-tap anywhere on the viewfinder to swap between rear and front-facing cameras, complete with haptic feedback and smooth stream transition masking.
 - **Multisensory Shutter Feedback**:
   - **Haptics**: Tactile feedback on shutter tap.
