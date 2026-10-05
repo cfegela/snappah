@@ -41,6 +41,35 @@ Snappah strips away the clutter of modern camera apps—no menus, no sliders, no
 
 ---
 
+## Compatibility & Supported Devices
+
+### Android Versions
+
+| Spec | Version | Global Market Coverage | Notes |
+| :--- | :--- | :--- | :--- |
+| **Minimum (`minSdk`)** | **Android 8.0 (Oreo, API 26)** | **~95%+ of active devices** | Broad backwards compatibility across legacy hardware |
+| **Target & Compile (`targetSdk`)** | **Android 15 (API 35)** | Latest Android release | Modern edge-to-edge layout and updated runtime permissions |
+
+### Device Support
+
+Snappah runs on any smartphone released since late 2017 running Android 8.0 or newer, including:
+- **Google Pixel**: Pixel 2 through the latest Pixel 9 & Pixel 10 families (Pro, XL, Fold, and a-series).
+- **Samsung Galaxy**: Galaxy S8 / Note 8 and newer (S9–S25 series, Z Fold / Z Flip foldables, Galaxy A & M series).
+- **Motorola, OnePlus, Xiaomi, Nothing Phone, Sony Xperia, Asus, Oppo, Vivo**: All models updated to or launched with Android 8.0+.
+
+### Hardware Requirements
+
+- **Camera Sensor**: Requires at least one physical camera (`android.hardware.camera`).
+- **Autofocus**: Optional (`android.hardware.camera.autofocus` is `required="false"`), allowing full functionality on entry-level, fixed-focus, or flagship devices.
+- **Orientation**: Locked to **Portrait** mode for consistent 3:4 aspect ratio framing.
+
+### Storage Compatibility
+
+- **Android 10 to 15 (API 29–35)**: Saves directly into public device storage via the modern scoped `MediaStore` API (`DCIM/Snappah/`) with zero additional storage permission prompts.
+- **Android 8.0 to 9.0 (API 26–28)**: Supports legacy external storage via `WRITE_EXTERNAL_STORAGE` (`maxSdkVersion="28"`) declared in the manifest.
+
+---
+
 ## Project Structure
 
 ```text
