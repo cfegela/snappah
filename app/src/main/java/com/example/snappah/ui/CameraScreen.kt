@@ -19,8 +19,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -46,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -55,6 +56,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.snappah.ui.theme.Black
+import com.example.snappah.ui.theme.SnappahBlue
 import com.example.snappah.ui.theme.White
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -254,24 +256,43 @@ fun ShutterButton(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .size(60.dp)
-            .border(width = 3.dp, color = White, shape = CircleShape)
-            .padding(4.dp)
+            .size(64.dp)
             .clip(CircleShape)
-            .background(Color.Transparent)
             .clickable(
                 interactionSource = interactionSource,
-                indication = ripple(bounded = true, radius = 30.dp, color = Color.Gray),
+                indication = ripple(bounded = true, radius = 32.dp, color = Color.Gray),
                 onClick = onClick
             )
     ) {
-        // Inner shutter core
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(CircleShape)
-                .background(White)
-        )
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val center = this.center
+            val radius = size.minDimension / 2f
+
+            // White base circle (matching app launcher icon background)
+            drawCircle(
+                color = White,
+                radius = radius,
+                center = center
+            )
+
+            // Outer blue ring (matching app icon outer band)
+            val outerRingRadius = radius * (52f / 72f)
+            val strokeWidth = radius * (3f / 36f)
+            drawCircle(
+                color = SnappahBlue,
+                radius = outerRingRadius,
+                center = center,
+                style = Stroke(width = strokeWidth)
+            )
+
+            // Inner blue filled circle (matching app icon inner shutter core)
+            val innerCircleRadius = radius * (36f / 72f)
+            drawCircle(
+                color = SnappahBlue,
+                radius = innerCircleRadius,
+                center = center
+            )
+        }
     }
 }
 
