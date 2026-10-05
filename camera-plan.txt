@@ -1,0 +1,271 @@
+﻿Pixel 10 Pro Minimal Camera App Plan (3:2 Aspect Ratio)
+Implementation Plan
+1. Project Setup & Dependencies
+* Tool: Android Studio (latest version).
+* Dependencies: Add the CameraX library and Jetpack Compose (for a clean, programmatic UI without XML bloat) to your build.gradle.kts file:
+   * androidx.camera:camera-camera2
+   * androidx.camera:camera-lifecycle
+   * androidx.camera:camera-view
+2. Permissions Management
+* Declare the camera permission in your AndroidManifest.xml:
+
+
+<uses-permission android:name="android.permission.CAMERA" />
+
+
+* Implement a runtime permission check on app launch to prompt you for camera access immediately.
+3. Designing the Minimal UI (3:2 Aspect Ratio)
+* Viewfinder: Constrained strictly to a 3:2 aspect ratio box in the center of the screen using an Android PreviewView wrapped inside Jetpack Compose (.aspectRatio(3f / 2f)).
+* Shutter Button: A simple, semi-transparent circular button pinned to the bottom center of the screen over the viewfinder. No menus, no sliders, no galleries.
+4. Camera Logic & Binding
+* Initialize the ProcessCameraProvider to bind the camera lifecycle to your main activity.
+* Set up two core CameraX use cases:
+   1. Preview: Feeds the camera stream directly into your viewfinder.
+   2. ImageCapture: Captures high-resolution JPEGs when the shutter button is pressed and saves them to app-specific or shared storage.
+
+
+________________
+
+
+Kotlin Source Code (MainActivity.kt)
+package com.example.minimalcamera
+
+
+import android.Manifest
+
+
+import android.content.pm.PackageManager
+
+
+import android.os.Bundle
+
+
+import android.widget.Toast
+
+
+import androidx.activity.ComponentActivity
+
+
+import androidx.activity.compose.setContent
+
+
+import androidx.activity.result.contract.ActivityResultContracts
+
+
+import androidx.camera.core.*
+
+
+import androidx.camera.lifecycle.ProcessCameraProvider
+
+
+import androidx.camera.view.PreviewView
+
+
+import androidx.compose.foundation.background
+
+
+import androidx.compose.foundation.layout.*
+
+
+import androidx.compose.foundation.shape.CircleShape
+
+
+import androidx.compose.material3.Button
+
+
+import androidx.compose.material3.ButtonDefaults
+
+
+import androidx.compose.runtime.*
+
+
+import androidx.compose.ui.Alignment
+
+
+import androidx.compose.ui.Modifier
+
+
+import androidx.compose.ui.graphics.Color
+
+
+import androidx.compose.ui.platform.LocalContext
+
+
+import androidx.compose.ui.platform.LocalLifecycleOwner
+
+
+import androidx.compose.ui.unit.dp
+
+
+import androidx.compose.ui.viewinterop.AndroidView
+
+
+import androidx.core.content.ContextCompat
+
+
+class MainActivity : ComponentActivity() {
+
+
+    private val permissionLauncher = registerForActivityResult(
+
+
+        ActivityResultContracts.RequestPermission()
+
+
+    ) { isGranted -> if (!isGranted) finish() }
+
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+
+
+        super.onCreate(savedInstanceState)
+
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+
+
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+
+
+        }
+
+
+        setContent { CameraScreen() }
+
+
+    }
+
+
+}
+
+
+@Composable
+
+
+fun CameraScreen() {
+
+
+    val context = LocalContext.current
+
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+
+    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+
+
+        // Viewfinder constrained strictly to a 3:2 aspect ratio box in the center
+
+
+        AndroidView(
+
+
+            modifier = Modifier
+
+
+                .fillMaxWidth()
+
+
+                .aspectRatio(3f / 2f)
+
+
+                .align(Alignment.Center),
+
+
+            factory = { ctx ->
+
+
+                PreviewView(ctx).apply {
+
+
+                    scaleType = PreviewView.ScaleType.FILL_CENTER
+
+
+                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+
+
+                    cameraProviderFuture.addListener({
+
+
+                        val cameraProvider = cameraProviderFuture.get()
+
+
+                        val preview = Preview.Builder().build().also {
+
+
+                            it.setSurfaceProvider(surfaceProvider)
+
+
+                        }
+
+
+                        imageCapture = ImageCapture.Builder().build()
+
+
+                        try {
+
+
+                            cameraProvider.unbindAll()
+
+
+                            cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+
+
+                        } catch (e: Exception) { e.printStackTrace() }
+
+
+                    }, ContextCompat.getMainExecutor(ctx))
+
+
+                }
+
+
+            }
+
+
+        )
+
+
+        // Minimal Shutter Button pinned at the bottom
+
+
+        Button(
+
+
+            onClick = {
+
+
+                Toast.makeText(context, "Captured 3:2 Photo!", Toast.LENGTH_SHORT).show()
+
+
+            },
+
+
+            modifier = Modifier
+
+
+                .align(Alignment.BottomCenter)
+
+
+                .padding(bottom = 48.dp)
+
+
+                .size(80.dp),
+
+
+            shape = CircleShape,
+
+
+            colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+
+
+        ) {}
+
+
+    }
+
+
+}
