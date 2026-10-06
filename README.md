@@ -9,10 +9,18 @@ Snappah strips away the clutter of modern camera apps — no menus, no sliders, 
 ## Features
 
 ### Photo
-- **Instant capture** via CameraX `CAPTURE_MODE_MINIMIZE_LATENCY`
+- **High-quality capture** via CameraX `CAPTURE_MODE_MAXIMIZE_QUALITY` enabling hardware multi-frame noise reduction (MFNR) on the camera ISP for superior low-light performance
 - **WYSIWYG 15% saturation boost** applied to both the live preview and saved JPEG for consistent, vivid color
 - **98% quality JPEG** saved to `DCIM/Snappah/SNAP_<timestamp>.jpg` via the `MediaStore` API with full EXIF preservation
 - **Multisensory shutter feedback**: haptic pulse + vintage mechanical shutter sound + 60ms white flash animation
+
+### Photo Viewer
+- **Swipe-to-view**: Swipe left anywhere on the screen to fluidly glide into the viewer screen via a Compose `HorizontalPager`
+- **Instant latest photo**: Displays the last captured photo from the current session or queries `MediaStore` for the most recent photo in `DCIM/Snappah`
+- **Efficient decoding**: Rendered with Android's `ImageDecoder` using target sample downsampling to conserve RAM while preserving full EXIF rotation
+- **Upper-right delete button**: Positioned safely in the top-right header to avoid accidental taps; deletes immediately with haptic feedback and automatically displays the next most recent photo (or empty state if none remain)
+- **Fluid return**: Swipe right, tap the top-left back button, or use the system back gesture (`BackHandler`) to return instantly to the camera
+- **Gesture safety**: Pager swiping is locked during active video recording to prevent accidental navigation
 
 ### Video
 - **Long-press** the shutter button to start recording
@@ -26,6 +34,7 @@ Snappah strips away the clutter of modern camera apps — no menus, no sliders, 
 - **Double-tap** anywhere on the viewfinder to flip between rear and front cameras (with haptic feedback and seamless stream masking)
 - Double-tap is **disabled during recording** to prevent accidental camera switches mid-clip
 - Pure black OLED-friendly interface with no overlays or chrome
+- Off-screen camera preview preloaded (`beyondViewportPageCount = 1`) for zero startup lag or black flicker when swiping back from the viewer
 
 ---
 
@@ -35,17 +44,17 @@ Snappah strips away the clutter of modern camera apps — no menus, no sliders, 
 | :--- | :--- |
 | Language | Kotlin (JVM target 17) |
 | UI | Jetpack Compose + Material 3 |
-| Camera | AndroidX CameraX 1.4.0 (`camera-camera2`, `camera-lifecycle`, `camera-view`, `camera-video`) |
+| Camera | AndroidX CameraX 1.6.2 (`camera-camera2`, `camera-lifecycle`, `camera-view`, `camera-video`) |
 | Color processing | Android `ColorMatrix` / `ColorMatrixColorFilter` on hardware layer |
 | Audio | `SoundPool` (shutter click) · `ToneGenerator` (record start/stop beeps) |
-| Build | Gradle 8.10.2 (Kotlin DSL) |
+| Build | Gradle 8.11.1 (Kotlin DSL) · Android Gradle Plugin 8.9.1 |
 
 **SDK targets**
 
 | | API | Android version |
 | :--- | :--- | :--- |
 | `minSdk` | 26 | Android 8.0 Oreo |
-| `targetSdk` / `compileSdk` | 35 | Android 15 |
+| `targetSdk` / `compileSdk` | 36 | Android 16 |
 
 ---
 
@@ -55,6 +64,8 @@ Snappah strips away the clutter of modern camera apps — no menus, no sliders, 
 | :--- | :--- |
 | `CAMERA` | Preview and capture |
 | `RECORD_AUDIO` | Video recording with audio |
+| `READ_MEDIA_IMAGES` *(minSdkVersion 33)* | View and manage previously captured photos on Android 13+ |
+| `READ_EXTERNAL_STORAGE` *(maxSdkVersion 32)* | View previously captured photos on Android 12 and below |
 | `WRITE_EXTERNAL_STORAGE` *(maxSdkVersion 28)* | Legacy storage on Android 9 and below |
 
 All permissions are requested at runtime on first launch. Camera access is required; microphone access is required for video with audio.
@@ -69,7 +80,7 @@ Snappah runs on any Android device released since late 2017:
 - **Samsung Galaxy** S8 / Note 8 and newer (S-series, Z Fold / Z Flip, A-series)
 - **Motorola, OnePlus, Xiaomi, Nothing Phone, Sony Xperia, Asus, Oppo, Vivo** — any model on Android 8.0+
 
-**Storage**: Android 10–15 uses the scoped `MediaStore` API with no extra permission prompts. Android 8–9 uses the legacy `WRITE_EXTERNAL_STORAGE` path.
+**Storage**: Android 10+ uses the scoped `MediaStore` API with no extra permission prompts for newly captured photos. Android 8–9 uses the legacy `WRITE_EXTERNAL_STORAGE` path.
 
 ---
 
@@ -83,7 +94,8 @@ snappah/
 │   │   ├── java/com/example/snappah/
 │   │   │   ├── MainActivity.kt           # Lifecycle, runtime permissions, edge-to-edge
 │   │   │   └── ui/
-│   │   │       ├── CameraScreen.kt       # Viewfinder, photo/video capture, shutter button
+│   │   │       ├── CameraScreen.kt       # Viewfinder, photo/video capture, pager container
+│   │   │       ├── PhotoViewerScreen.kt  # MediaStore query, image viewer, delete action
 │   │   │       └── theme/                # Compose theme & Snappah brand colors
 │   │   └── res/
 │   │       ├── raw/shutter_sound.wav     # Mechanical shutter sound effect
@@ -106,7 +118,7 @@ snappah/
 ### Prerequisites
 
 - **JDK 17+** — Homebrew: `brew install openjdk@17`
-- **Android SDK** (API 35) — via Android Studio or command-line tools
+- **Android SDK** (API 36) — via Android Studio or command-line tools
 - **Physical Android device** with USB Debugging enabled (recommended; camera hardware required)
 
 ### Environment

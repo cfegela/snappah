@@ -389,6 +389,9 @@ fun CameraScreen() {
                         coroutineScope.launch {
                             pagerState.animateScrollToPage(0)
                         }
+                    },
+                    onPhotoDeleted = { nextUri ->
+                        latestPhotoUri = nextUri
                     }
                 )
             }
