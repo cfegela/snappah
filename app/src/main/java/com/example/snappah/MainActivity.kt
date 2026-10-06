@@ -83,12 +83,25 @@ class MainActivity : ComponentActivity() {
             this, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
 
+        val mediaPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_IMAGES
+        } else if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.S_V2) {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        } else {
+            null
+        }
+
+        val mediaGranted = mediaPermission == null || ContextCompat.checkSelfPermission(
+            this, mediaPermission
+        ) == PackageManager.PERMISSION_GRANTED
+
         hasCameraPermission = cameraGranted
 
         // Request whichever permissions are still missing
         val missing = buildList {
             if (!cameraGranted) add(Manifest.permission.CAMERA)
             if (!audioGranted) add(Manifest.permission.RECORD_AUDIO)
+            if (!mediaGranted) add(mediaPermission!!)
         }
         if (missing.isNotEmpty()) {
             permissionLauncher.launch(missing.toTypedArray())

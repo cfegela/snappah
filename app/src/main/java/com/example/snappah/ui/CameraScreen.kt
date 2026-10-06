@@ -9,7 +9,11 @@ import android.media.ToneGenerator
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import com.example.snappah.R
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -102,6 +106,18 @@ fun CameraScreen() {
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var isFrontCamera by remember { mutableStateOf(false) }
     var isStreamStreaming by remember { mutableStateOf(false) }
+    var latestPhotoUri by remember { mutableStateOf<Uri?>(null) }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val uri = queryLatestPhotoUri(context)
+            withContext(Dispatchers.Main) {
+                if (latestPhotoUri == null && uri != null) {
+                    latestPhotoUri = uri
+                }
+            }
+        }
+    }
 
     val cameraSelector = if (isFrontCamera) {
         CameraSelector.DEFAULT_FRONT_CAMERA
@@ -163,11 +179,27 @@ fun CameraScreen() {
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Black)
-    ) {
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
+
+    BackHandler(enabled = pagerState.currentPage != 0) {
+        coroutineScope.launch {
+            pagerState.animateScrollToPage(0)
+        }
+    }
+
+    HorizontalPager(
+        state = pagerState,
+        beyondViewportPageCount = 1,
+        userScrollEnabled = !isRecording,
+        modifier = Modifier.fillMaxSize()
+    ) { page ->
+        when (page) {
+            0 -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Black)
+                ) {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -288,6 +320,7 @@ fun CameraScreen() {
                                 imageCapture = imageCapture,
                                 onPhotoSaved = { uriString ->
                                     Log.d(TAG, "Photo saved: $uriString")
+                                    latestPhotoUri = Uri.parse(uriString)
                                 },
                                 onError = { exc ->
                                     Toast.makeText(context, "Capture error: ${exc.message}", Toast.LENGTH_SHORT).show()
@@ -346,6 +379,19 @@ fun CameraScreen() {
                     .fillMaxSize()
                     .background(Color.White.copy(alpha = 0.7f))
             )
+        }
+    }
+            }
+            1 -> {
+                PhotoViewerScreen(
+                    photoUri = latestPhotoUri,
+                    onBackToCamera = {
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(0)
+                        }
+                    }
+                )
+            }
         }
     }
 }
