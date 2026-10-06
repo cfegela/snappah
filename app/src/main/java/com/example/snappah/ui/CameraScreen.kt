@@ -119,7 +119,7 @@ fun CameraScreen() {
             it.setSurfaceProvider(pView.surfaceProvider)
         }
         val capture = ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
             .build()
         imageCapture = capture
 
