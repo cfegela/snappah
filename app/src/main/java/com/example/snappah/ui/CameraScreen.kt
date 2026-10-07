@@ -15,7 +15,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import com.example.snappah.R
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
@@ -29,6 +31,9 @@ import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,12 +51,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,10 +70,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
@@ -83,6 +100,7 @@ import java.io.FileInputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 private const val TAG = "SnappahCamera"
 private const val SATURATION_BOOST = 1.15f // 15% saturation boost for WYSIWYG vibrant look
@@ -104,6 +122,9 @@ fun CameraScreen() {
     var isShutterFlashing by remember { mutableStateOf(false) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
+    var camera by remember { mutableStateOf<Camera?>(null) }
+    var focusTarget by remember { mutableStateOf<Offset?>(null) }
+    var focusTrigger by remember { mutableIntStateOf(0) }
     var isFrontCamera by remember { mutableStateOf(false) }
     var isStreamStreaming by remember { mutableStateOf(false) }
     var latestPhotoUri by remember { mutableStateOf<Uri?>(null) }
@@ -147,7 +168,7 @@ fun CameraScreen() {
 
         try {
             provider.unbindAll()
-            provider.bindToLifecycle(
+            camera = provider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
                 preview,
@@ -155,6 +176,7 @@ fun CameraScreen() {
                 vc
             )
         } catch (exc: Exception) {
+            camera = null
             Log.e(TAG, "Camera binding failed", exc)
         }
     }
@@ -181,6 +203,12 @@ fun CameraScreen() {
 
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
+    LaunchedEffect(pagerState.currentPage) {
+        if (pagerState.currentPage != 0) {
+            focusTarget = null
+        }
+    }
+
     BackHandler(enabled = pagerState.currentPage != 0) {
         coroutineScope.launch {
             pagerState.animateScrollToPage(0)
@@ -203,25 +231,66 @@ fun CameraScreen() {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Top letterbox spacing to keep viewfinder vertically centered
+            // Top letterbox spacing above viewfinder with selfie camera toggle
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-            )
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                if (!isRecording) {
+                    IconButton(
+                        onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            focusTarget = null
+                            isStreamStreaming = false
+                            isFrontCamera = !isFrontCamera
+                        },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(40.dp)
+                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Cameraswitch,
+                            contentDescription = "Switch to selfie camera",
+                            tint = White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
 
-            // Full uncropped native sensor viewfinder with double-tap camera toggle
+            // Full uncropped native sensor viewfinder with single-tap focus and exposure
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(3f / 4f)
+                    .clipToBounds()
                     .pointerInput(Unit) {
                         detectTapGestures(
-                            onDoubleTap = {
-                                if (!isRecording) {
-                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    isStreamStreaming = false
-                                    isFrontCamera = !isFrontCamera
+                            onTap = { offset ->
+                                val cam = camera
+                                val pView = previewView
+                                if (isStreamStreaming && cam != null && pView != null) {
+                                    try {
+                                        val factory = pView.meteringPointFactory
+                                        val point = factory.createPoint(offset.x, offset.y)
+                                        val action = FocusMeteringAction.Builder(
+                                            point,
+                                            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
+                                        )
+                                            .setAutoCancelDuration(3, TimeUnit.SECONDS)
+                                            .build()
+                                        cam.cameraControl.startFocusAndMetering(action)
+
+                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        focusTarget = offset
+                                        focusTrigger++
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Focus/metering failed", e)
+                                    }
                                 }
                             }
                         )
@@ -273,6 +342,17 @@ fun CameraScreen() {
                         modifier = Modifier
                             .fillMaxSize()
                             .background(Black)
+                    )
+                }
+
+                // Focus and exposure reticle overlay
+                focusTarget?.let { target ->
+                    FocusReticle(
+                        target = target,
+                        trigger = focusTrigger,
+                        onAnimationEnd = {
+                            focusTarget = null
+                        }
                     )
                 }
             }
@@ -676,3 +756,93 @@ private fun copyExifAttributes(
         }
     }
 }
+
+@Composable
+private fun FocusReticle(
+    target: Offset,
+    trigger: Int,
+    modifier: Modifier = Modifier,
+    onAnimationEnd: () -> Unit = {}
+) {
+    val scale = remember { Animatable(1.35f) }
+    val alpha = remember { Animatable(1f) }
+
+    LaunchedEffect(trigger) {
+        scale.snapTo(1.35f)
+        alpha.snapTo(1f)
+
+        // Snappy contraction down to 1.0f (mimics camera lens snapping into focus)
+        scale.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+        )
+
+        // Stay visible during active focus & metering
+        delay(2300)
+
+        // Smooth fade out
+        alpha.animateTo(
+            targetValue = 0f,
+            animationSpec = tween(durationMillis = 300, easing = LinearEasing)
+        )
+        onAnimationEnd()
+    }
+
+    if (alpha.value > 0f) {
+        val reticleSize = 40.dp
+        val density = LocalDensity.current
+        val reticleSizePx = with(density) { reticleSize.toPx() }
+
+        Box(
+            modifier = modifier.fillMaxSize()
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(reticleSize)
+                    .graphicsLayer {
+                        translationX = target.x - (reticleSizePx / 2f)
+                        translationY = target.y - (reticleSizePx / 2f)
+                        scaleX = scale.value
+                        scaleY = scale.value
+                        this.alpha = alpha.value
+                        transformOrigin = TransformOrigin.Center
+                    }
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val strokeWidth = 1.5.dp.toPx()
+                    val shadowStroke = 3.dp.toPx()
+                    val circleRadius = (size.minDimension - shadowStroke) / 2f
+
+                    // Outer dark shadow stroke for high contrast on bright scenes
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.35f),
+                        radius = circleRadius,
+                        center = center,
+                        style = Stroke(width = shadowStroke)
+                    )
+
+                    // Crisp white focus ring
+                    drawCircle(
+                        color = White.copy(alpha = 0.95f),
+                        radius = circleRadius,
+                        center = center,
+                        style = Stroke(width = strokeWidth)
+                    )
+
+                    // Center metering dot
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.35f),
+                        radius = 2.dp.toPx(),
+                        center = center
+                    )
+                    drawCircle(
+                        color = White.copy(alpha = 0.95f),
+                        radius = 1.2.dp.toPx(),
+                        center = center
+                    )
+                }
+            }
+        }
+    }
+}
+

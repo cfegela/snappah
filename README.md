@@ -31,9 +31,9 @@ Snappah strips away the clutter of modern camera apps — no menus, no sliders, 
 
 ### Viewfinder & Controls
 - **3:4 aspect ratio** native sensor viewfinder, vertically centered with letterboxing
-- **Double-tap** anywhere on the viewfinder to flip between rear and front cameras (with haptic feedback and seamless stream masking)
-- Double-tap is **disabled during recording** to prevent accidental camera switches mid-clip
-- Pure black OLED-friendly interface with no overlays or chrome
+- **Single-tap** anywhere on the viewfinder for instant focus and exposure metering (with a compact circular animated reticle, haptic feedback, and a 3-second auto-reset)
+- **Upper-right selfie camera toggle**: Dedicated button positioned in the upper-right corner above the viewfinder to seamlessly flip between rear and front cameras (smoothly hidden during video recording)
+- Pure black OLED-friendly interface with minimal chrome
 - Off-screen camera preview preloaded (`beyondViewportPageCount = 1`) for zero startup lag or black flicker when swiping back from the viewer
 
 ---
