@@ -10,6 +10,8 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import android.net.Uri
+import android.view.OrientationEventListener
+import android.view.Surface
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.pager.HorizontalPager
@@ -128,6 +130,38 @@ fun CameraScreen() {
     var isFrontCamera by remember { mutableStateOf(false) }
     var isStreamStreaming by remember { mutableStateOf(false) }
     var latestPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    var deviceRotation by remember { mutableIntStateOf(Surface.ROTATION_0) }
+
+    DisposableEffect(context) {
+        val orientationEventListener = object : OrientationEventListener(context) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
+
+                val rotation = when (orientation) {
+                    in 45 until 135 -> Surface.ROTATION_270
+                    in 135 until 225 -> Surface.ROTATION_180
+                    in 225 until 315 -> Surface.ROTATION_90
+                    else -> Surface.ROTATION_0
+                }
+
+                if (deviceRotation != rotation) {
+                    deviceRotation = rotation
+                    imageCapture?.targetRotation = rotation
+                    try {
+                        videoCapture?.targetRotation = rotation
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to set videoCapture targetRotation", e)
+                    }
+                }
+            }
+        }
+        if (orientationEventListener.canDetectOrientation()) {
+            orientationEventListener.enable()
+        }
+        onDispose {
+            orientationEventListener.disable()
+        }
+    }
 
     val cameraSelector = if (isFrontCamera) {
         CameraSelector.DEFAULT_FRONT_CAMERA
@@ -146,13 +180,16 @@ fun CameraScreen() {
         }
         val capture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setTargetRotation(deviceRotation)
             .build()
         imageCapture = capture
 
         val recorder = Recorder.Builder()
             .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
             .build()
-        val vc = VideoCapture.withOutput(recorder)
+        val vc = VideoCapture.withOutput(recorder).apply {
+            targetRotation = deviceRotation
+        }
         videoCapture = vc
 
         try {
@@ -387,6 +424,7 @@ fun CameraScreen() {
                             takePhoto(
                                 context = context,
                                 imageCapture = imageCapture,
+                                targetRotation = deviceRotation,
                                 onPhotoSaved = { uriString ->
                                     Log.d(TAG, "Photo saved: $uriString")
                                     latestPhotoUri = Uri.parse(uriString)
@@ -404,6 +442,7 @@ fun CameraScreen() {
                             startVideoRecording(
                                 context = context,
                                 videoCapture = videoCapture,
+                                targetRotation = deviceRotation,
                                 onRecordingStarted = { recording ->
                                     activeRecording = recording
                                     isRecording = true
@@ -528,6 +567,7 @@ fun ShutterButton(
 private fun startVideoRecording(
     context: Context,
     videoCapture: VideoCapture<Recorder>?,
+    targetRotation: Int,
     onRecordingStarted: (Recording) -> Unit,
     onRecordingFinalized: (String) -> Unit,
     onError: (Exception) -> Unit
@@ -536,6 +576,9 @@ private fun startVideoRecording(
         onError(IllegalStateException("VideoCapture not ready"))
         return
     }
+    try {
+        vc.targetRotation = targetRotation
+    } catch (_: Exception) {}
 
     val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
     val filename = "SNAP_VID_$timeStamp.mp4"
@@ -583,10 +626,12 @@ private fun startVideoRecording(
 private fun takePhoto(
     context: Context,
     imageCapture: ImageCapture?,
+    targetRotation: Int,
     onPhotoSaved: (String) -> Unit,
     onError: (Exception) -> Unit
 ) {
     val capture = imageCapture ?: return
+    capture.targetRotation = targetRotation
 
     val tempFile = try {
         File.createTempFile("snap_raw_", ".jpg", context.cacheDir)
