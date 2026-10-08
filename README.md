@@ -6,37 +6,6 @@ Snappah strips away the clutter of modern camera apps — no menus, no sliders, 
 
 ---
 
-## Technical Architecture
-
-Snappah is designed around a reactive, lifecycle-aware architecture built on AndroidX CameraX and Jetpack Compose.
-
-```
-                    ┌──────────────────────────────────────────────┐
-                    │               MainActivity                   │
-                    │   (Edge-to-Edge, Portrait Locked, Permissions)│
-                    └──────────────────────┬───────────────────────┘
-                                           │
-                                           ▼
-                    ┌──────────────────────────────────────────────┐
-                    │                 CameraScreen                 │
-                    │     (HorizontalPager Container / Viewfinder)  │
-                    └───────────┬──────────────────────┬───────────┘
-                                │                      │
-                 Swipe Left     │                      │   Swipe Right
-                 ───────────────┘                      └───────────────
-                                ▼                                      ▼
-    ┌────────────────────────────────────────┐     ┌────────────────────────────────────────┐
-    │           Camera Viewfinder            │     │           PhotoViewerScreen            │
-    │  - PreviewView (3:4 Sensor Ratio)      │     │  - Scoped MediaStore Query             │
-    │  - Hardware Saturation Layer           │     │  - 60-Second Sliding Window            │
-    │  - Touch AF/AE Metering Point Factory  │     │  - ImageDecoder Downsampling           │
-    │  - OrientationEventListener            │     │  - MediaStore Delete Intent / Action   │
-    │  - ImageCapture & VideoCapture         │     │  - "No Recent Images" Empty State      │
-    └────────────────────────────────────────┘     └────────────────────────────────────────┘
-```
-
----
-
 ### Camera & Capture Pipeline
 
 - **Lifecycle-Aware Binding**: Managed through `ProcessCameraProvider`, binding `Preview`, `ImageCapture`, and `VideoCapture<Recorder>` simultaneously to the Compose lifecycle.
