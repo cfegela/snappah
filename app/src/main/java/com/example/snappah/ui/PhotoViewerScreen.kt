@@ -263,11 +263,11 @@ fun queryLatestPhotoUri(context: Context): Uri? {
     )
     val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
 
-    // 1. Try querying specifically in DCIM/Snappah
+    // 1. Try querying specifically in Pictures/simplah
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         try {
             val selection = "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
-            val selectionArgs = arrayOf("%DCIM/Snappah%")
+            val selectionArgs = arrayOf("%simplah%")
             context.contentResolver.query(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 projection,
@@ -282,7 +282,7 @@ fun queryLatestPhotoUri(context: Context): Uri? {
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Query for DCIM/Snappah failed", e)
+            Log.w(TAG, "Query for simplah failed", e)
         }
     }
 

@@ -554,7 +554,7 @@ private fun startVideoRecording(
         put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
         put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.Video.Media.RELATIVE_PATH, "DCIM/Snappah")
+            put(MediaStore.Video.Media.RELATIVE_PATH, "Pictures/simplah")
         }
     }
 
@@ -646,7 +646,7 @@ private suspend fun saveSaturatedPhoto(
         put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
         put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Snappah")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/simplah")
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
     }

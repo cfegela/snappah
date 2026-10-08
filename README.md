@@ -11,12 +11,12 @@ Snappah strips away the clutter of modern camera apps — no menus, no sliders, 
 ### Photo
 - **High-quality capture** via CameraX `CAPTURE_MODE_MAXIMIZE_QUALITY` enabling hardware multi-frame noise reduction (MFNR) on the camera ISP for superior low-light performance
 - **WYSIWYG 15% saturation boost** applied to both the live preview and saved JPEG for consistent, vivid color
-- **98% quality JPEG** saved to `DCIM/Snappah/SNAP_<timestamp>.jpg` via the `MediaStore` API with full EXIF preservation
+- **98% quality JPEG** saved to `Pictures/simplah/SNAP_<timestamp>.jpg` via the `MediaStore` API with full EXIF preservation
 - **Multisensory shutter feedback**: haptic pulse + vintage mechanical shutter sound + 60ms white flash animation
 
 ### Photo Viewer
 - **Swipe-to-view**: Swipe left anywhere on the screen to fluidly glide into the viewer screen via a Compose `HorizontalPager`
-- **Instant latest photo**: Displays the last captured photo from the current session or queries `MediaStore` for the most recent photo in `DCIM/Snappah`
+- **Instant latest photo**: Displays the last captured photo from the current session or queries `MediaStore` for the most recent photo in `Pictures/simplah`
 - **Efficient decoding**: Rendered with Android's `ImageDecoder` using target sample downsampling to conserve RAM while preserving full EXIF rotation
 - **Upper-right delete button**: Positioned safely in the top-right header to avoid accidental taps; deletes immediately with haptic feedback and automatically displays the next most recent photo (or empty state if none remain)
 - **Fluid return**: Swipe right, tap the top-left back button, or use the system back gesture (`BackHandler`) to return instantly to the camera
@@ -25,7 +25,7 @@ Snappah strips away the clutter of modern camera apps — no menus, no sliders, 
 ### Video
 - **Long-press** the shutter button to start recording
 - **Tap** the shutter button to stop
-- Video saved to `DCIM/Snappah/SNAP_VID_<timestamp>.mp4` at the highest quality available
+- Video saved to `Pictures/simplah/SNAP_VID_<timestamp>.mp4` at the highest quality available
 - **Beep on start and stop** so you always know recording state without looking at the screen
 - Button turns **red** while recording and snaps back to **blue** the instant you stop
 
