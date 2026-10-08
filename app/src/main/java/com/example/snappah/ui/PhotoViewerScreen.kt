@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -65,45 +67,84 @@ private const val TAG = "PhotoViewerScreen"
 
 @Composable
 fun PhotoViewerScreen(
-    photoUri: Uri?,
+    isActive: Boolean,
     onBackToCamera: () -> Unit,
-    onPhotoDeleted: (Uri?) -> Unit,
+    latestCapturedUri: Uri? = null,
+    onPhotoDeleted: ((Uri?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
-    var bitmap by remember(photoUri) { mutableStateOf<ImageBitmap?>(null) }
-    var isLoading by remember(photoUri) { mutableStateOf(photoUri != null) }
+
+    var recentPhotos by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
+    var pendingDeleteUri by remember { mutableStateOf<Uri?>(null) }
+
+    val photoPagerState = rememberPagerState(
+        initialPage = 0,
+        pageCount = { maxOf(1, recentPhotos.size) }
+    )
 
     val deleteIntentSenderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            coroutineScope.launch {
-                val nextUri = withContext(Dispatchers.IO) { queryLatestPhotoUri(context) }
-                onPhotoDeleted(nextUri)
-                Toast.makeText(context, "Photo deleted", Toast.LENGTH_SHORT).show()
+            val deletedUri = pendingDeleteUri
+            if (deletedUri != null) {
+                val updated = recentPhotos.filter { it != deletedUri }
+                recentPhotos = updated
+                onPhotoDeleted?.invoke(updated.firstOrNull())
+                pendingDeleteUri = null
+            }
+            Toast.makeText(context, "Photo deleted", Toast.LENGTH_SHORT).show()
+        }
+        isDeleting = false
+    }
+
+    // Refresh recent photos strictly within the last 60 seconds whenever entering the viewer
+    LaunchedEffect(isActive) {
+        if (isActive) {
+            isLoading = true
+            val photos = withContext(Dispatchers.IO) {
+                val queried = queryRecentPhotos(context, durationSeconds = 60).toMutableList()
+                // If a photo was just captured in this session and finished saving, ensure it's included
+                if (latestCapturedUri != null && !queried.contains(latestCapturedUri)) {
+                    val isRecent = isPhotoWithinWindow(context, latestCapturedUri, 60)
+                    if (isRecent) {
+                        queried.add(0, latestCapturedUri)
+                    }
+                }
+                queried
+            }
+            recentPhotos = photos
+            isLoading = false
+            if (photos.isNotEmpty()) {
+                photoPagerState.scrollToPage(0)
             }
         }
     }
 
-    LaunchedEffect(photoUri) {
-        if (photoUri == null) {
-            bitmap = null
-            isLoading = false
-            return@LaunchedEffect
+    // Live update if a new capture finishes saving while user is on the viewer screen
+    LaunchedEffect(latestCapturedUri) {
+        if (isActive && latestCapturedUri != null && !recentPhotos.contains(latestCapturedUri)) {
+            val isRecent = withContext(Dispatchers.IO) { isPhotoWithinWindow(context, latestCapturedUri, 60) }
+            if (isRecent) {
+                recentPhotos = listOf(latestCapturedUri) + recentPhotos
+                photoPagerState.scrollToPage(0)
+            }
         }
-        isLoading = true
-        bitmap = withContext(Dispatchers.IO) {
-            loadDownsampledBitmap(context, photoUri)
-        }
-        isLoading = false
     }
 
-    fun handleDelete() {
-        val uri = photoUri ?: return
+    // Clamp pager index if recent photos shrink
+    LaunchedEffect(recentPhotos.size) {
+        if (recentPhotos.isNotEmpty() && photoPagerState.currentPage >= recentPhotos.size) {
+            photoPagerState.scrollToPage(recentPhotos.size - 1)
+        }
+    }
+
+    fun handleDelete(uri: Uri) {
         if (isDeleting) return
         isDeleting = true
         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -115,12 +156,14 @@ fun PhotoViewerScreen(
                     count > 0
                 } catch (e: SecurityException) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        pendingDeleteUri = uri
                         val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, listOf(uri))
                         deleteIntentSenderLauncher.launch(
                             IntentSenderRequest.Builder(pendingIntent.intentSender).build()
                         )
                         null
                     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && e is android.app.RecoverableSecurityException) {
+                        pendingDeleteUri = uri
                         deleteIntentSenderLauncher.launch(
                             IntentSenderRequest.Builder(e.userAction.actionIntent.intentSender).build()
                         )
@@ -136,13 +179,15 @@ fun PhotoViewerScreen(
             }
 
             if (success == true) {
+                val updated = recentPhotos.filter { it != uri }
+                recentPhotos = updated
+                onPhotoDeleted?.invoke(updated.firstOrNull())
                 Toast.makeText(context, "Photo deleted", Toast.LENGTH_SHORT).show()
-                val nextUri = withContext(Dispatchers.IO) { queryLatestPhotoUri(context) }
-                onPhotoDeleted(nextUri)
+                isDeleting = false
             } else if (success == false) {
                 Toast.makeText(context, "Failed to delete photo", Toast.LENGTH_SHORT).show()
+                isDeleting = false
             }
-            isDeleting = false
         }
     }
 
@@ -151,16 +196,17 @@ fun PhotoViewerScreen(
             .fillMaxSize()
             .background(Black)
     ) {
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap!!,
-                contentDescription = "Last captured photo",
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding(),
-                contentScale = ContentScale.Fit
-            )
+        if (recentPhotos.isNotEmpty()) {
+            HorizontalPager(
+                state = photoPagerState,
+                modifier = Modifier.fillMaxSize(),
+                key = { pageIndex -> recentPhotos.getOrNull(pageIndex)?.toString() ?: pageIndex.toString() }
+            ) { pageIndex ->
+                val uri = recentPhotos.getOrNull(pageIndex)
+                if (uri != null) {
+                    PhotoPage(uri = uri)
+                }
+            }
         } else if (isLoading) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
@@ -175,7 +221,7 @@ fun PhotoViewerScreen(
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = "No photos yet",
+                    text = "No Recent Images",
                     color = White,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Medium
@@ -211,21 +257,65 @@ fun PhotoViewerScreen(
                 )
             }
 
-            if (photoUri != null && bitmap != null) {
-                IconButton(
-                    onClick = { handleDelete() },
-                    enabled = !isDeleting,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete photo",
-                        tint = White
-                    )
+            if (recentPhotos.isNotEmpty()) {
+                val currentUri = recentPhotos.getOrNull(photoPagerState.currentPage)
+                if (currentUri != null) {
+                    IconButton(
+                        onClick = { handleDelete(currentUri) },
+                        enabled = !isDeleting,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete photo",
+                            tint = White
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PhotoPage(
+    uri: Uri,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var bitmap by remember(uri) { mutableStateOf<ImageBitmap?>(null) }
+    var isLoading by remember(uri) { mutableStateOf(true) }
+
+    LaunchedEffect(uri) {
+        isLoading = true
+        bitmap = withContext(Dispatchers.IO) {
+            loadDownsampledBitmap(context, uri)
+        }
+        isLoading = false
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Black),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!,
+                contentDescription = "Recent photo",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+                contentScale = ContentScale.Fit
+            )
+        } else if (isLoading) {
+            CircularProgressIndicator(
+                color = SnappahBlue
+            )
         }
     }
 }
@@ -256,18 +346,40 @@ private fun loadDownsampledBitmap(context: Context, uri: Uri): ImageBitmap? {
     }
 }
 
-fun queryLatestPhotoUri(context: Context): Uri? {
+private fun isPhotoWithinWindow(context: Context, uri: Uri, durationSeconds: Long): Boolean {
+    val cutoffSeconds = (System.currentTimeMillis() / 1000) - durationSeconds
+    return try {
+        context.contentResolver.query(
+            uri,
+            arrayOf(MediaStore.Images.Media.DATE_ADDED),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val dateAdded = cursor.getLong(0)
+                dateAdded >= cutoffSeconds
+            } else false
+        } ?: false
+    } catch (e: Exception) {
+        false
+    }
+}
+
+fun queryRecentPhotos(context: Context, durationSeconds: Long = 60): List<Uri> {
+    val cutoffSeconds = (System.currentTimeMillis() / 1000) - durationSeconds
     val projection = arrayOf(
         MediaStore.Images.Media._ID,
         MediaStore.Images.Media.DATE_ADDED
     )
     val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+    val uris = mutableListOf<Uri>()
 
-    // 1. Try querying specifically in Pictures/simplah
+    // 1. Try querying specifically in Pictures/simplah with DATE_ADDED >= cutoff
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         try {
-            val selection = "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
-            val selectionArgs = arrayOf("%simplah%")
+            val selection = "(${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? OR ${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?) AND ${MediaStore.Images.Media.DATE_ADDED} >= $cutoffSeconds"
+            val selectionArgs = arrayOf("%simplah%", "%simplah/%")
             context.contentResolver.query(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 projection,
@@ -275,37 +387,47 @@ fun queryLatestPhotoUri(context: Context): Uri? {
                 selectionArgs,
                 sortOrder
             )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                while (cursor.moveToNext()) {
                     val id = cursor.getLong(idColumn)
-                    return ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                    uris.add(ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id))
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Query for simplah failed", e)
+            Log.w(TAG, "Query for recent photos in simplah failed", e)
         }
     }
 
-    // 2. Fallback: try photos with filename prefix SNAP_
-    try {
-        val selection = "${MediaStore.Images.Media.DISPLAY_NAME} LIKE ?"
-        val selectionArgs = arrayOf("SNAP_%")
-        context.contentResolver.query(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            projection,
-            selection,
-            selectionArgs,
-            sortOrder
-        )?.use { cursor ->
-            if (cursor.moveToFirst()) {
+    // 2. Fallback: try photos with filename prefix SNAP_ and DATE_ADDED >= cutoff
+    if (uris.isEmpty()) {
+        try {
+            val selection = "${MediaStore.Images.Media.DISPLAY_NAME} LIKE ? AND ${MediaStore.Images.Media.DATE_ADDED} >= $cutoffSeconds"
+            val selectionArgs = arrayOf("SNAP_%")
+            context.contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                selection,
+                selectionArgs,
+                sortOrder
+            )?.use { cursor ->
                 val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                val id = cursor.getLong(idColumn)
-                return ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idColumn)
+                    val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                    if (!uris.contains(uri)) {
+                        uris.add(uri)
+                    }
+                }
             }
+        } catch (e: Exception) {
+            Log.w(TAG, "Fallback query for recent SNAP_ photos failed", e)
         }
-    } catch (e: Exception) {
-        Log.w(TAG, "Query for SNAP_ photos failed", e)
     }
 
-    return null
+    Log.d(TAG, "queryRecentPhotos (cutoff=$cutoffSeconds) found ${uris.size} photos")
+    return uris
+}
+
+fun queryLatestPhotoUri(context: Context): Uri? {
+    return queryRecentPhotos(context, durationSeconds = Long.MAX_VALUE).firstOrNull()
 }

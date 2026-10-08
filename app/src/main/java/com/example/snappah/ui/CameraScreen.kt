@@ -129,17 +129,6 @@ fun CameraScreen() {
     var isStreamStreaming by remember { mutableStateOf(false) }
     var latestPhotoUri by remember { mutableStateOf<Uri?>(null) }
 
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            val uri = queryLatestPhotoUri(context)
-            withContext(Dispatchers.Main) {
-                if (latestPhotoUri == null && uri != null) {
-                    latestPhotoUri = uri
-                }
-            }
-        }
-    }
-
     val cameraSelector = if (isFrontCamera) {
         CameraSelector.DEFAULT_FRONT_CAMERA
     } else {
@@ -464,12 +453,13 @@ fun CameraScreen() {
             }
             1 -> {
                 PhotoViewerScreen(
-                    photoUri = latestPhotoUri,
+                    isActive = pagerState.currentPage == 1,
                     onBackToCamera = {
                         coroutineScope.launch {
                             pagerState.animateScrollToPage(0)
                         }
                     },
+                    latestCapturedUri = latestPhotoUri,
                     onPhotoDeleted = { nextUri ->
                         latestPhotoUri = nextUri
                     }
@@ -645,6 +635,7 @@ private suspend fun saveSaturatedPhoto(
     val contentValues = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
         put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+        put(MediaStore.MediaColumns.DATE_ADDED, System.currentTimeMillis() / 1000)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/simplah")
             put(MediaStore.Images.Media.IS_PENDING, 1)

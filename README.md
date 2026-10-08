@@ -15,10 +15,11 @@ Snappah strips away the clutter of modern camera apps — no menus, no sliders, 
 - **Multisensory shutter feedback**: haptic pulse + vintage mechanical shutter sound + 60ms white flash animation
 
 ### Photo Viewer
-- **Swipe-to-view**: Swipe left anywhere on the screen to fluidly glide into the viewer screen via a Compose `HorizontalPager`
-- **Instant latest photo**: Displays the last captured photo from the current session or queries `MediaStore` for the most recent photo in `Pictures/simplah`
+- **Swipe-to-view**: Swipe left anywhere on the viewfinder to fluidly glide into the recent photos viewer screen via a Compose `HorizontalPager`
+- **Recent photos stream**: Scroll horizontally through all photos taken within the last minute (60 seconds) in `Pictures/simplah`, keeping the list stable while actively reviewing
+- **No Recent Images empty state**: If no photos were taken within the last minute (or all recent shots were deleted), displays a clean `"No Recent Images"` empty state with a prompt to swipe back to the camera
 - **Efficient decoding**: Rendered with Android's `ImageDecoder` using target sample downsampling to conserve RAM while preserving full EXIF rotation
-- **Upper-right delete button**: Positioned safely in the top-right header to avoid accidental taps; deletes immediately with haptic feedback and automatically displays the next most recent photo (or empty state if none remain)
+- **Upper-right delete button**: Positioned safely in the top-right header to avoid accidental taps; deletes immediately with haptic feedback and automatically transitions to the next available recent photo (or empty state if none remain)
 - **Fluid return**: Swipe right, tap the top-left back button, or use the system back gesture (`BackHandler`) to return instantly to the camera
 - **Gesture safety**: Pager swiping is locked during active video recording to prevent accidental navigation
 
