@@ -35,6 +35,7 @@ Pre-built APKs are published to GitHub Releases at https://github.com/cfegela/sn
 
 - **Lifecycle-Aware Binding**: Managed through `ProcessCameraProvider`, binding `Preview`, `ImageCapture`, and `VideoCapture<Recorder>` simultaneously to the Compose lifecycle.
 - **High-Quality Still Capture**: Configured with `ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY`, engaging camera ISP hardware Multi-Frame Noise Reduction (MFNR) and zero-shutter-lag algorithms for optimal low-light performance.
+- **Hardware Optical Image Stabilization (OIS)**: Transparently queries `CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION` and enables `CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON` via `Camera2Interop` across both still captures and the live session, physically stabilizing the lens with zero CPU overhead.
 - **Native 3:4 Aspect Ratio**: Matches the physical aspect ratio of the underlying camera sensor, vertically centered with OLED pure-black letterboxing to eliminate letterbox cropping.
 - **Camera Switch Transition**: Seamless toggle between front and rear cameras (`CameraSelector.DEFAULT_BACK_CAMERA` and `DEFAULT_FRONT_CAMERA`) using a zero-overhead transition overlay (`AnimatedVisibility`) to eliminate black flicker or stale-frame flashing during pipeline rebinding.
 

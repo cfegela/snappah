@@ -17,6 +17,14 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import com.example.snappah.R
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraMetadata
+import android.hardware.camera2.CaptureRequest
+import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.CaptureRequestOptions
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
@@ -110,6 +118,7 @@ private const val SATURATION_BOOST = 1.15f // 15% saturation boost for WYSIWYG v
 // Recording indicator red
 private val RecordingRed = Color(0xFFE53935)
 
+@ExperimentalCamera2Interop
 @Composable
 fun CameraScreen() {
     val context = LocalContext.current
@@ -175,13 +184,36 @@ fun CameraScreen() {
 
         isStreamStreaming = false
 
+        // Check if selected camera sensor supports hardware Optical Image Stabilization (OIS)
+        val isOisSupported = try {
+            val cameraInfo = cameraSelector.filter(provider.availableCameraInfos).firstOrNull()
+            val camera2Info = cameraInfo?.let { Camera2CameraInfo.from(it) }
+            val oisModes = camera2Info?.getCameraCharacteristic(
+                CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION
+            )
+            oisModes?.contains(CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) == true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to check OIS support", e)
+            false
+        }
+
         val preview = Preview.Builder().build().also {
             it.setSurfaceProvider(pView.surfaceProvider)
         }
-        val capture = ImageCapture.Builder()
+
+        val captureBuilder = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
             .setTargetRotation(deviceRotation)
-            .build()
+
+        if (isOisSupported) {
+            Camera2Interop.Extender(captureBuilder).setCaptureRequestOption(
+                CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON
+            )
+            Log.d(TAG, "Configured ImageCapture with hardware OIS")
+        }
+
+        val capture = captureBuilder.build()
         imageCapture = capture
 
         val recorder = Recorder.Builder()
@@ -194,13 +226,31 @@ fun CameraScreen() {
 
         try {
             provider.unbindAll()
-            camera = provider.bindToLifecycle(
+            val boundCamera = provider.bindToLifecycle(
                 lifecycleOwner,
                 cameraSelector,
                 preview,
                 capture,
                 vc
             )
+            camera = boundCamera
+
+            // Also engage OIS in repeating session if supported so lens gyro is stable while framing
+            if (isOisSupported) {
+                try {
+                    val camera2Control = Camera2CameraControl.from(boundCamera.cameraControl)
+                    val captureOptions = CaptureRequestOptions.Builder()
+                        .setCaptureRequestOption(
+                            CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                            CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON
+                        )
+                        .build()
+                    camera2Control.setCaptureRequestOptions(captureOptions)
+                    Log.d(TAG, "Hardware Optical Image Stabilization (OIS) active")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to apply OIS to Camera2CameraControl", e)
+                }
+            }
         } catch (exc: Exception) {
             camera = null
             Log.e(TAG, "Camera binding failed", exc)
