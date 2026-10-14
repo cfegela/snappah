@@ -1,8 +1,60 @@
 # <img src="assets/icon.png" width="40" height="40" alt="Snappah Icon" valign="middle"> Snappah
 
-A minimal, distraction-free point-and-shoot camera app for Android built with **Jetpack Compose** and **CameraX**.
+A minimal, distraction-free point-and-shoot camera app for Android built with **Jetpack Compose** and **CameraX**, featuring an integrated media gallery and pro photo editor powered by **Google ML Kit** and **Media3 ExoPlayer**.
 
-Snappah strips away the clutter of modern camera apps — no menus, no sliders, no filters. Just frame the shot and press the button.
+Snappah combines the speed and simplicity of classic point-and-shoot photography with modern Android imaging capabilities. Frame your shot on a clean viewfinder with hardware Optical Image Stabilization (OIS) and real-time saturation enhancement, capture photos or record videos instantly, and jump straight into a full-featured media roll and advanced editing suite without leaving the app.
+
+---
+
+## Key Features
+
+### 📸 Camera & Capture
+- **Point-and-Shoot Simplicity**: Clean, distraction-free viewfinder with native 3:4 sensor aspect ratio and OLED pure-black letterboxing.
+- **Hardware Optical Image Stabilization (OIS)**: Transparently queries camera sensor capabilities and engages physical lens gyro stabilization for both still photos and the live framing session.
+- **Dual-Action Shutter**:
+  - **Tap**: High-quality still capture with mechanical shutter audio feedback and subtle screen flash.
+  - **Long-Press**: Instant HD/4K video recording with synchronous audio, auditory tone cues (`ToneGenerator`), and dynamic shutter button color transition (blue $\to$ red).
+- **WYSIWYG 15% Saturation Boost**: Calibrated 15% saturation enhancement rendered in real time on the preview hardware layer and baked directly into final JPEGs for vivid, vibrant shots.
+- **Touch-to-Focus & Exposure Metering**: Single-tap anywhere on the viewfinder triggers dual AF/AE metering with an animated Compose reticle and a 3-second auto-reset timer.
+- **Dynamic Orientation & EXIF Tagging**: Real-time hardware accelerometer tilt monitoring automatically sets target capture rotation and writes EXIF orientation tags — landscape photos and videos save right-side up without post-capture rotation.
+- **Front / Rear Camera Switch**: Instant toggle between front and rear cameras in the top-right corner with smooth, zero-flicker transitions.
+- **Swipe-to-Review Stream**: Swipe right from the camera viewfinder to instantly inspect or delete photos taken within the last 60 seconds.
+
+### 🖼️ Integrated Media Gallery & Roll
+- **Built-In Media Roll**: Tap the photo library icon in the top-left corner to access your complete library of photos and videos.
+- **Ultra-Fast 60 FPS Scrolling**: Custom `MediaStoreThumbnailFetcher` leverages Android's OS-level thumbnail cache via `ContentResolver.loadThumbnail`, ensuring butter-smooth scrolling with minimal memory usage.
+- **Video Badges & Duration**: Video items in the gallery display a distinct play badge and formatted duration overlay (`MM:SS`).
+- **Hardware-Efficient Lifecycle**: Automatically unbinds CameraX sensor hardware upon entering the gallery to conserve battery and eliminate CPU/GPU overhead, seamlessly rebinding upon return.
+- **Dedicated Black Header & Camera Return**: Sleek top navigation bar with a dedicated camera shortcut button to return instantly to shooting.
+
+### 🎞️ Fullscreen Media Viewer
+- **Fluid Horizontal Pager**: Swipe seamlessly through full-resolution photos and videos.
+- **Integrated Video Playback**: Smooth, in-app video playback powered by AndroidX **Media3 ExoPlayer** with custom play/pause overlay controls.
+- **Immersive Mode**: Single-tap toggles overlay controls for distraction-free edge-to-edge viewing.
+- **Direct Sharing**: Share photos and videos to any app via the native Android system share sheet with secure URI read permissions.
+- **Scoped Storage Deletion**: Full support for Android 11+ scoped storage deletion via `MediaStore.createDeleteRequest`, safely falling back on legacy versions.
+
+### 🎨 Pro In-App Photo Editor
+- **Color Grading**:
+  - **Saturation**: Discrete slider from `-1` (pure B&W monochrome) to `0` (neutral) to `+10` (+10% saturation per step up to 2.0×).
+  - **Selective Skin Tone Reduction**: Slider from `-10` to `0` that gently pulls back excess red and warm facial flush while strictly protecting neutral tones (grays, whites, blacks) and preserving vibrant green foliage and blue skies.
+- **Light & Tone Adjustments**:
+  - **Highlights (Light)**: Lift shadows and brighten midtones (levels 0–10).
+  - **Darks & Contrast**: Deepen shadows and enrich black points for cinematic punch (levels 0–10).
+- **Curated Film Filters**:
+  - **Warm**: Golden-hour / Kodak Portra warmth and gentle shadow glow.
+  - **Cool**: Nordic / Fuji Provia crisp editorial coolness.
+  - **Noir**: High-contrast Leica monochrome with deep contrast roll-off.
+  - **Fade**: Lifted matte shadows with vintage analog emulsion texture.
+- **Natural Portrait Background Blur (Bokeh)**:
+  - Powered by **Google ML Kit Subject Segmentation** (`play-services-mlkit-subject-segmentation`).
+  - Employs an optical bokeh stack blur engine (`StackBlur`) across 5 adjustable intensity levels.
+  - Caches segmentation masks on source bitmaps for instant slider feedback and zero lag.
+- **Composition & Crop**:
+  - Freeform crop tool with interactive corner and edge drag handles and rule-of-thirds grid lines.
+  - Lossless 90-degree image rotation (`RotateRight`).
+- **Live Before/After Compare**: Press and hold the compare button to instantly preview the original unedited photo against your current edits.
+- **Lossless EXIF Export**: Save edits in-place or "Save as Copy", automatically carrying over all original camera capture metadata (exposure time, ISO, aperture, focal length, GPS coordinates, make, model, and original capture timestamps).
 
 ---
 
@@ -31,69 +83,110 @@ Pre-built APKs are published to GitHub Releases at https://github.com/cfegela/sn
 
 ---
 
-### Camera & Capture Pipeline
+## Technical Architecture
 
-- **Lifecycle-Aware Binding**: Managed through `ProcessCameraProvider`, binding `Preview`, `ImageCapture`, and `VideoCapture<Recorder>` simultaneously to the Compose lifecycle.
-- **High-Quality Still Capture**: Configured with `ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY`, engaging camera ISP hardware Multi-Frame Noise Reduction (MFNR) and zero-shutter-lag algorithms for optimal low-light performance.
-- **Hardware Optical Image Stabilization (OIS)**: Transparently queries `CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION` and enables `CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON` via `Camera2Interop` across both still captures and the live session, physically stabilizing the lens with zero CPU overhead.
-- **Native 3:4 Aspect Ratio**: Matches the physical aspect ratio of the underlying camera sensor, vertically centered with OLED pure-black letterboxing to eliminate letterbox cropping.
-- **Camera Switch Transition**: Seamless toggle between front and rear cameras (`CameraSelector.DEFAULT_BACK_CAMERA` and `DEFAULT_FRONT_CAMERA`) using a zero-overhead transition overlay (`AnimatedVisibility`) to eliminate black flicker or stale-frame flashing during pipeline rebinding.
+```mermaid
+graph TD
+    subgraph UI ["User Interface (Jetpack Compose)"]
+        CS[CameraScreen]
+        GS[GalleryScreen]
+        PDS[PhotoDetailScreen]
+        EPS[EditPhotoScreen]
+        PVS[PhotoViewerScreen 1-Min Review]
+    end
 
-### Dynamic Orientation & EXIF System
+    subgraph CapturePipeline ["Capture & Sensor Pipeline"]
+        CX[CameraX 1.6.2]
+        OIS[Hardware OIS - Camera2Interop]
+        OEL[OrientationEventListener]
+        PV[PreviewView - Hardware Saturation Layer]
+        REC[VideoCapture Recorder]
+    end
 
-- **Portrait-Locked Window**: `MainActivity` is declared with `android:screenOrientation="portrait"` to prevent Activity destruction, recomposition churn, or viewfinder restarts during device rotation.
-- **Hardware Tilt Monitoring**: Tracks the physical device accelerometer in real time using an `OrientationEventListener`, mapping device tilt angles into standard `Surface.ROTATION_*` constants:
-  - Natural Portrait ($0^\circ$) $\to$ `Surface.ROTATION_0`
-  - Landscape ($90^\circ$ counter-clockwise) $\to$ `Surface.ROTATION_90`
-  - Inverted Portrait ($180^\circ$) $\to$ `Surface.ROTATION_180`
-  - Reverse Landscape ($90^\circ$ clockwise) $\to$ `Surface.ROTATION_270`
-- **Dynamic Target Rotation**: Synchronizes `targetRotation` on `ImageCapture` and `VideoCapture` at initialization, during active tilt changes, and directly at the moment of shutter press.
-- **Automatic EXIF Tagging**: CameraX calculates the sensor-to-target rotation offset and writes the correct EXIF orientation tag (`ORIENTATION_NORMAL`, `ORIENTATION_ROTATE_90`, `ORIENTATION_ROTATE_180`, `ORIENTATION_ROTATE_270`) directly into the output JPEG. Landscape photos automatically save horizontally with zero post-capture rotation needed by the user.
+    subgraph StoragePipeline ["Storage & Media Pipeline"]
+        CR[ContentResolver]
+        MS[MediaStore: Pictures/Snappah]
+        EXIF[AndroidX ExifInterface Engine]
+    end
 
-### WYSIWYG Color & Processing Pipeline
+    subgraph ProcessingPipeline ["Processing & ML Engines"]
+        ML[ML Kit Subject Segmentation]
+        SB[StackBlur Bokeh Engine]
+        CA[ColorAdjustmentHelper & ColorMatrix]
+        TF[MediaStoreThumbnailFetcher]
+        EXO[Media3 ExoPlayer Engine]
+    end
 
-- **Real-Time Saturation Boost**: Applies a calibrated 15% saturation enhancement (`SATURATION_BOOST = 1.15f`) across both the viewfinder and final JPEG file for consistent WYSIWYG output.
-- **Hardware-Accelerated Preview**: The saturation boost is rendered in real time using an Android `ColorMatrixColorFilter` set directly on the `PreviewView` hardware layer (`View.LAYER_TYPE_HARDWARE`), incurring zero CPU or memory allocation overhead.
+    CS -->|Binds/Unbinds| CX
+    CX -->|Stabilizes| OIS
+    OEL -->|Rotates| CX
+    CS -->|Renders| PV
+    CS -->|Video Stream| REC
+    CS -->|Saves Photos/Videos| MS
+    MS -->|Preserves Metadata| EXIF
+
+    CS -->|Open Photo Roll| GS
+    CS -->|Swipe Right| PVS
+    GS -->|Fast Thumbnails| TF
+    GS -->|Select Item| PDS
+    PDS -->|Plays Video| EXO
+    PDS -->|Launches Editor| EPS
+
+    EPS -->|Person Mask| ML
+    ML -->|Background Blur| SB
+    EPS -->|Color & Skin Tone| CA
+    EPS -->|Save Edits| MS
+```
+
+### 1. Camera & Sensor Pipeline
+- **Lifecycle-Aware Binding**: `ProcessCameraProvider` binds `Preview`, `ImageCapture`, and `VideoCapture<Recorder>` simultaneously to the Compose lifecycle.
+- **Hardware Optical Image Stabilization (OIS)**: Inspects `CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION` via `Camera2CameraInfo`. When available, applies `CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON` via `Camera2Interop` to both `ImageCapture` and the continuous repeating viewfinder session.
+- **Resource Management**: When switching from camera to gallery, `CameraScreen` explicitly calls `provider.unbindAll()` and releases the camera session, ensuring zero battery drain and complete hardware sensor release while browsing media.
+- **High-Quality Still Capture**: Configured with `ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY`, engaging ISP Multi-Frame Noise Reduction (MFNR) and zero-shutter-lag algorithms.
+- **Native 3:4 Viewfinder**: Matches the physical aspect ratio of the camera sensor with pure OLED black letterboxing to prevent sensor cropping.
+- **Dynamic Orientation Mapping**: Monitors device accelerometer tilt via `OrientationEventListener`, mapping angles to `Surface.ROTATION_*` constants and updating target rotation at capture time to write proper EXIF orientation tags.
+
+### 2. WYSIWYG Color & Processing Pipeline
+- **Real-Time Saturation Filter**: Applies a calibrated 15% saturation enhancement (`SATURATION_BOOST = 1.15f`) across both the viewfinder and final JPEG file.
+- **Hardware-Accelerated Viewfinder**: Viewfinder saturation is applied via `ColorMatrixColorFilter` directly on the `PreviewView` hardware layer (`View.LAYER_TYPE_HARDWARE`), consuming zero CPU.
 - **Post-Capture Processing**:
   - Image captured to a temporary cache file via CameraX.
-  - Decoded and rendered to an in-memory mutable bitmap with matching `ColorMatrixColorFilter`.
-  - Compressed to JPEG at 98% quality into `Pictures/simplah/SNAP_<timestamp>.jpg` using scoped `MediaStore`.
-  - **Full EXIF Preservation**: `copyExifAttributes` copies exposure parameters (`TAG_EXPOSURE_TIME`, `TAG_F_NUMBER`, `TAG_ISO_SPEED_RATINGS`, `TAG_FLASH`, `TAG_FOCAL_LENGTH`), GPS coordinates, timestamps, device make/model, and dynamic orientation tags from the raw capture to the final MediaStore file.
+  - Decoded and rendered to an in-memory bitmap with matching `ColorMatrixColorFilter`.
+  - Compressed to JPEG at 98% quality into `Pictures/Snappah/SNAP_<timestamp>.jpg` using scoped `MediaStore`.
+  - Full EXIF metadata copied from original capture (`TAG_EXPOSURE_TIME`, `TAG_F_NUMBER`, `TAG_ISO_SPEED_RATINGS`, `TAG_FLASH`, `TAG_FOCAL_LENGTH`, GPS coordinates, timestamps, device make/model).
 
-### Touch Focus & Exposure Metering
+### 3. Integrated Gallery & High-Speed Thumbnail Pipeline
+- **Custom Coil Thumbnail Fetcher**: `MediaStoreThumbnailFetcher` hooks into Coil's image loading pipeline. For thumbnail requests on Android 10+ (API 29+), it delegates to `ContentResolver.loadThumbnail()` with a target size of 360×360 px, reading pre-generated OS thumbnails with zero decode latency.
+- **Video Playback Engine**: Embedded `Media3 ExoPlayer` renders video playback within Compose via `AndroidView` wrapping `PlayerView`, with custom UI controls for play/pause and state tracking.
+- **Scoped Media Operations**: Media queries target both `Pictures/Snappah/` and legacy `Pictures/simplah/` directories across both images and videos.
 
-- **Dual AF/AE Metering**: Tapping anywhere on the viewfinder translates Compose coordinates into normalized camera coordinates using `PreviewView.meteringPointFactory.createPoint(offset.x, offset.y)`.
-- **Metering Action**: Dispatches a `FocusMeteringAction` with `FLAG_AF or FLAG_AE` to `cameraControl.startFocusAndMetering()`, with an automatic 3-second timeout before resetting to continuous auto-focus.
-- **Visual Reticle**: Renders an animated Compose `FocusReticle` with scale contraction ($1.35\times \to 1.0\times$), high-contrast outer shadow and white stroke, a 2.3-second hold duration, and linear fade-out.
+### 4. ML Kit Subject Segmentation & Portrait Blur Engine
+- **Subject Segmentation**: Leverages Google ML Kit Subject Segmentation (`SubjectSegmentation.getClient()`) to generate high-resolution subject masks separating people from backgrounds.
+- **Creamy Bokeh Synthesis**: Downscales masks to an optimized processing buffer (512px max dimension) and executes a high-speed multi-pass `StackBlur` algorithm. The blurred background is composited with the crisp foreground using `PorterDuff.Mode.DST_OVER` and `PorterDuff.Mode.SRC_IN` xfermodes.
+- **Mask Caching**: Keeps a `WeakReference` to the active source bitmap and mask, allowing users to scrub between bokeh blur intensity levels (1–5) in real time without re-running ML inference.
 
-### Video Recording Architecture
-
-- **VideoCapture Engine**: Powered by CameraX `Recorder` configured with `QualitySelector.from(Quality.HIGHEST)` and `VideoCapture.withOutput(recorder)`.
-- **Audio Integration**: Audio channel captured synchronously via `withAudioEnabled()`.
-- **Scoped Video Storage**: Streamed directly into `MediaStore.Video.Media.EXTERNAL_CONTENT_URI` under `Pictures/simplah/SNAP_VID_<timestamp>.mp4` using `MediaStoreOutputOptions`.
-- **Auditory & Visual Feedback**: Emits distinct auditory cues via `ToneGenerator` (`TONE_PROP_BEEP`) on recording start and stop, accompanied by haptic feedback and instant shutter button color transitions (blue $\to$ red $\to$ blue).
-
-### Review Stream & MediaStore Query Engine
-
-- **Sliding Window Query**: `queryRecentPhotos` scans `MediaStore.Images.Media.EXTERNAL_CONTENT_URI` for images stored in `Pictures/simplah` where `DATE_ADDED` is within the last 60 seconds (`System.currentTimeMillis() / 1000 - 60`).
-- **Memory-Efficient Downsampling**: Employs Android P+ `ImageDecoder.decodeBitmap` with `setTargetSampleSize`, downsampling images to match the physical display resolution while automatically honoring EXIF orientation.
-- **Seamless Navigation**: Managed via Compose `HorizontalPager` with `beyondViewportPageCount = 1`, preloading the viewfinder offscreen to prevent latency or black flashes when returning to the camera.
-- **Scoped Deletion Protocol**: Integrates with Android 11+ scoped storage requirements using `MediaStore.createDeleteRequest` and `ActivityResultContracts.StartIntentSenderForResult()`, with fallback to direct `ContentResolver.delete()` for legacy Android versions.
+### 5. Color Adjustment & Tone Engine
+- **Skin-Tone Protection Algorithm**: Built inside `ColorAdjustmentHelper`, computes color transformation matrices that specifically lower warm/red complexion saturation (`sr = 1.0 - reduction`, `sg = 1.0 - reduction * 0.20`, `sb = 1.0`) while preserving luminance weights (`wr = 0.2126`, `wg = 0.7152`, `wb = 0.0722`). Neutral grays and non-skin channels (skies, greens) remain untouched.
+- **Tonal Curves**: Multi-stage matrix concatenation dynamically combines exposure lift, black-point deepening, uniform saturation, skin-tone reduction, and film preset matrices into a single unified `ColorMatrixColorFilter`.
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-| :--- | :--- |
-| **Language** | Kotlin (JVM target 17) |
-| **UI Framework** | Jetpack Compose + Material 3 (BOM `2024.10.01`) |
-| **Camera Core** | AndroidX CameraX `1.6.2` (`camera-camera2`, `camera-lifecycle`, `camera-view`, `camera-video`) |
-| **Color Processing** | Android `ColorMatrix` / `ColorMatrixColorFilter` on hardware layer |
-| **Audio Synthesis** | `SoundPool` (mechanical shutter) · `ToneGenerator` (recording cues) |
-| **Build System** | Gradle `8.11.1` (Kotlin DSL) · Android Gradle Plugin (AGP) `8.9.1` |
+| Layer | Technology | Purpose |
+| :--- | :--- | :--- |
+| **Language** | Kotlin (JVM target 17) | Modern Android application logic |
+| **UI Framework** | Jetpack Compose + Material 3 (BOM `2024.10.01`) | Declarative reactive user interface |
+| **Camera Core** | AndroidX CameraX `1.6.2` | Camera preview, still capture, and video recording |
+| **Camera2 Extensions** | AndroidX `camera-camera2` | Hardware OIS control via `Camera2Interop` |
+| **Image Loading** | Coil `2.7.0` (`coil-compose`, `coil-video`) | Asynchronous image & video thumbnail loading |
+| **Video Player** | AndroidX Media3 ExoPlayer `1.4.1` | High-performance in-app video playback |
+| **ML & Segmentation** | Google ML Kit Subject Segmentation `16.0.0-beta1` | On-device subject isolation for portrait bokeh |
+| **Metadata Handling** | AndroidX ExifInterface `1.3.7` | Non-destructive EXIF reading and writing |
+| **Audio Synthesis** | `SoundPool` · `ToneGenerator` | Shutter sound effects and recording start/stop cues |
+| **Build System** | Gradle `8.11.1` · AGP `8.9.1` | Android build and packaging |
 
-**Target SDK Specifications**
+### Target SDK Specifications
 
 | Property | Value | Platform |
 | :--- | :--- | :--- |
@@ -109,11 +202,15 @@ Pre-built APKs are published to GitHub Releases at https://github.com/cfegela/sn
 | :--- | :--- | :--- |
 | `CAMERA` | Runtime | Viewfinder stream, auto-focus metering, and photo capture |
 | `RECORD_AUDIO` | Runtime | Synchronous audio track for video recordings |
-| `READ_MEDIA_IMAGES` | Runtime (`minSdk 33`) | Accessing recently captured photos in MediaStore on Android 13+ |
-| `READ_EXTERNAL_STORAGE` | Runtime (`maxSdk 32`) | Accessing recently captured photos in MediaStore on Android 12 and below |
-| `WRITE_EXTERNAL_STORAGE` | Runtime (`maxSdk 28`) | Legacy disk write fallback on Android 8.0–9.0 |
+| `READ_MEDIA_IMAGES` | Runtime (`minSdk 33`) | Accessing photos in MediaStore on Android 13+ |
+| `READ_MEDIA_VIDEO` | Runtime (`minSdk 33`) | Accessing videos in MediaStore on Android 13+ |
+| `READ_MEDIA_VISUAL_USER_SELECTED` | Runtime (`minSdk 34`) | Supporting Android 14+ Partial Media Access consent |
+| `READ_EXTERNAL_STORAGE` | Runtime (`maxSdk 32`) | Accessing photos/videos on Android 12 and below |
+| `WRITE_EXTERNAL_STORAGE` | Runtime (`maxSdk 29`) | Legacy disk write fallback on Android 8.0–9.0 |
+| `MANAGE_EXTERNAL_STORAGE` / `MANAGE_MEDIA` | System / Scoped | In-place image editing and scoped media management |
+| `ACCESS_MEDIA_LOCATION` | Runtime | Preserving GPS coordinates across photo saves and edits |
 
-- **Scoped Storage**: On Android 10+ (API 29+), photos and videos are written directly to `Pictures/simplah/` via `MediaStore` using `RELATIVE_PATH` and `IS_PENDING` flags without requiring broad external storage permissions.
+- **Scoped Storage**: Photos are saved to `Pictures/Snappah/SNAP_<timestamp>.jpg` and videos to `Pictures/Snappah/SNAP_VID_<timestamp>.mp4` via `MediaStore` using `RELATIVE_PATH` and `IS_PENDING` flags, maintaining compatibility with both modern scoped storage and legacy systems.
 
 ---
 
@@ -132,25 +229,49 @@ Snappah supports physical Android devices operating on API 26 (Android 8.0) thro
 ```text
 snappah/
 ├── app/
-│   ├── src/main/
-│   │   ├── AndroidManifest.xml           # Portrait orientation lock & hardware permissions
-│   │   ├── java/com/example/snappah/
-│   │   │   ├── MainActivity.kt           # Edge-to-edge setup, permission requests, screen routing
-│   │   │   └── ui/
-│   │   │       ├── CameraScreen.kt       # Viewfinder, OrientationEventListener, capture pipeline
-│   │   │       ├── PhotoViewerScreen.kt  # MediaStore query, ImageDecoder pager, delete handling
-│   │   │       └── theme/                # Snappah color palette, typography, and dark theme
-│   │   └── res/
-│   │       ├── raw/shutter_sound.wav     # Mechanical shutter sound effect
-│   │       ├── drawable/                 # Vector assets
-│   │       ├── mipmap/                   # Adaptive launcher icons
-│   │       └── values/                   # Strings, theme definitions, and colors
-│   └── build.gradle.kts                  # Android configuration & dependencies
+│   ├── src/
+│   │   ├── main/
+│   │   │   ├── AndroidManifest.xml                  # Hardware permissions, camera features, and queries
+│   │   │   ├── java/
+│   │   │   │   ├── com/example/snappah/
+│   │   │   │   │   ├── MainActivity.kt              # Edge-to-edge layout, permissions, and app entry
+│   │   │   │   │   ├── SnappahApp.kt                # Application class & custom Coil ImageLoader
+│   │   │   │   │   └── ui/
+│   │   │   │   │       ├── CameraScreen.kt          # CameraX pipeline, OIS, shutter, and letterboxing
+│   │   │   │   │       ├── PhotoViewerScreen.kt     # 1-minute recent review stream and deletion
+│   │   │   │   │       └── theme/                   # Snappah color palette, typography, and dark theme
+│   │   │   │   └── com/saturatah/gallery/
+│   │   │   │       ├── data/
+│   │   │   │       │   └── PhotoRepository.kt       # MediaStore queries, EXIF preservation, and file saves
+│   │   │   │       ├── model/
+│   │   │   │       │   ├── Photo.kt                 # Media item model (images and videos)
+│   │   │   │       │   └── PhotoFilter.kt           # Film presets (Warm, Cool, Noir, Fade)
+│   │   │   │       ├── ui/
+│   │   │   │       │   ├── EditPhotoScreen.kt       # Color, light, crop, rotate, and bokeh editor
+│   │   │   │       │   ├── GalleryApp.kt            # Navigation routing between grid, viewer, and editor
+│   │   │   │       │   ├── GalleryScreen.kt         # 3-column photo roll with video duration badges
+│   │   │   │       │   ├── GalleryViewModel.kt      # Gallery UI state, deletion, and editing orchestration
+│   │   │   │       │   ├── PhotoDetailScreen.kt     # Fullscreen viewer & Media3 ExoPlayer video playback
+│   │   │   │       │   └── theme/                   # Gallery design tokens and typography
+│   │   │   │       └── util/
+│   │   │   │           ├── ColorAdjustmentHelper.kt # Skin-tone reduction and saturation matrices
+│   │   │   │           ├── MediaStoreThumbnailFetcher.kt # Fast OS-level thumbnail loader for Coil
+│   │   │   │           ├── PortraitBlurEngine.kt    # ML Kit Subject Segmentation & bokeh synthesis
+│   │   │   │           └── StackBlur.kt             # High-speed optical stack blur algorithm
+│   │   │   └── res/
+│   │   │       ├── raw/shutter_sound.wav            # Mechanical shutter sound effect
+│   │   │       ├── drawable/                        # Vector assets
+│   │   │       ├── mipmap/                          # Adaptive launcher icons
+│   │   │       └── values/                          # App strings, themes, and colors
+│   │   └── test/
+│   │       └── java/com/saturatah/gallery/
+│   │           └── PhotoModelTest.kt                # Unit tests for models, sorting, filters, and blur
+│   └── build.gradle.kts                             # App module build configuration and dependencies
 ├── assets/
-│   ├── icon.png                          # App icon (PNG raster)
-│   └── icon.svg                          # App icon (SVG vector)
-├── build.gradle.kts                      # Root build configuration
-├── settings.gradle.kts                   # Project module definitions
+│   ├── icon.png                                     # App icon (PNG raster)
+│   └── icon.svg                                     # App icon (SVG vector)
+├── build.gradle.kts                                 # Root build configuration
+├── settings.gradle.kts                              # Project module definitions
 └── README.md
 ```
 
@@ -180,6 +301,9 @@ JAVA_HOME=$(brew --prefix openjdk@17) ./gradlew assembleDebug
 
 # Install directly to connected device
 JAVA_HOME=$(brew --prefix openjdk@17) ./gradlew installDebug
+
+# Run unit tests
+JAVA_HOME=$(brew --prefix openjdk@17) ./gradlew testDebugUnitTest
 ```
 
 Alternatively, push an existing build via `adb`:
