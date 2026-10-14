@@ -113,8 +113,6 @@ graph TD
 - **Skin-Tone Protection Algorithm**: Built inside `ColorAdjustmentHelper`, computes color transformation matrices that specifically lower warm/red complexion saturation (`sr = 1.0 - reduction`, `sg = 1.0 - reduction * 0.20`, `sb = 1.0`) while preserving luminance weights (`wr = 0.2126`, `wg = 0.7152`, `wb = 0.0722`). Neutral grays and non-skin channels (skies, greens) remain untouched.
 - **Tonal Curves**: Multi-stage matrix concatenation dynamically combines exposure lift, black-point deepening, uniform saturation, skin-tone reduction, and film preset matrices into a single unified `ColorMatrixColorFilter`.
 
----
-
 ## Tech Stack
 
 | Layer | Technology | Purpose |
@@ -138,8 +136,6 @@ graph TD
 | `targetSdk` | **36** | Android 16 (Baklava) |
 | `compileSdk` | **36** | Android 16 (Baklava) |
 
----
-
 ## Permissions & Storage Model
 
 | Permission | Scope | Technical Purpose |
@@ -156,7 +152,6 @@ graph TD
 
 - **Scoped Storage**: Photos are saved to `Pictures/Snappah/SNAP_<timestamp>.jpg` and videos to `Pictures/Snappah/SNAP_VID_<timestamp>.mp4` via `MediaStore` using `RELATIVE_PATH` and `IS_PENDING` flags, maintaining compatibility with both modern scoped storage and legacy systems.
 
----
 
 ## Compatibility
 
@@ -166,7 +161,6 @@ Snappah supports physical Android devices operating on API 26 (Android 8.0) thro
 - **Samsung Galaxy**: S-series (S8 through S25), Z Fold / Flip series, Note series, A-series
 - **OEM Compatibility**: Motorola, OnePlus, Xiaomi, Nothing Phone, Sony Xperia, Asus, Oppo, Vivo
 
----
 
 ## Project Structure
 
@@ -219,7 +213,6 @@ snappah/
 └── README.md
 ```
 
----
 
 ## Getting Started
 
@@ -255,8 +248,6 @@ Alternatively, push an existing build via `adb`:
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
-
----
 
 ## License
 
