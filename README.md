@@ -4,60 +4,6 @@ A minimal, distraction-free point-and-shoot camera app for Android built with **
 
 Snappah combines the speed and simplicity of classic point-and-shoot photography with modern Android imaging capabilities. Frame your shot on a clean viewfinder with hardware Optical Image Stabilization (OIS) and real-time saturation enhancement, capture photos or record videos instantly, and jump straight into a full-featured media roll and advanced editing suite without leaving the app.
 
----
-
-## Key Features
-
-### 📸 Camera & Capture
-- **Point-and-Shoot Simplicity**: Clean, distraction-free viewfinder with native 3:4 sensor aspect ratio and OLED pure-black letterboxing.
-- **Hardware Optical Image Stabilization (OIS)**: Transparently queries camera sensor capabilities and engages physical lens gyro stabilization for both still photos and the live framing session.
-- **Dual-Action Shutter**:
-  - **Tap**: High-quality still capture with mechanical shutter audio feedback and subtle screen flash.
-  - **Long-Press**: Instant HD/4K video recording with synchronous audio, auditory tone cues (`ToneGenerator`), and dynamic shutter button color transition (blue $\to$ red).
-- **WYSIWYG 15% Saturation Boost**: Calibrated 15% saturation enhancement rendered in real time on the preview hardware layer and baked directly into final JPEGs for vivid, vibrant shots.
-- **Touch-to-Focus & Exposure Metering**: Single-tap anywhere on the viewfinder triggers dual AF/AE metering with an animated Compose reticle and a 3-second auto-reset timer.
-- **Dynamic Orientation & EXIF Tagging**: Real-time hardware accelerometer tilt monitoring automatically sets target capture rotation and writes EXIF orientation tags — landscape photos and videos save right-side up without post-capture rotation.
-- **Front / Rear Camera Switch**: Instant toggle between front and rear cameras in the top-right corner with smooth, zero-flicker transitions.
-- **Swipe-to-Review Stream**: Swipe right from the camera viewfinder to instantly inspect or delete photos taken within the last 60 seconds.
-
-### 🖼️ Integrated Media Gallery & Roll
-- **Built-In Media Roll**: Tap the photo library icon in the top-left corner to access your complete library of photos and videos.
-- **Ultra-Fast 60 FPS Scrolling**: Custom `MediaStoreThumbnailFetcher` leverages Android's OS-level thumbnail cache via `ContentResolver.loadThumbnail`, ensuring butter-smooth scrolling with minimal memory usage.
-- **Video Badges & Duration**: Video items in the gallery display a distinct play badge and formatted duration overlay (`MM:SS`).
-- **Hardware-Efficient Lifecycle**: Automatically unbinds CameraX sensor hardware upon entering the gallery to conserve battery and eliminate CPU/GPU overhead, seamlessly rebinding upon return.
-- **Dedicated Black Header & Camera Return**: Sleek top navigation bar with a dedicated camera shortcut button to return instantly to shooting.
-
-### 🎞️ Fullscreen Media Viewer
-- **Fluid Horizontal Pager**: Swipe seamlessly through full-resolution photos and videos.
-- **Integrated Video Playback**: Smooth, in-app video playback powered by AndroidX **Media3 ExoPlayer** with custom play/pause overlay controls.
-- **Immersive Mode**: Single-tap toggles overlay controls for distraction-free edge-to-edge viewing.
-- **Direct Sharing**: Share photos and videos to any app via the native Android system share sheet with secure URI read permissions.
-- **Scoped Storage Deletion**: Full support for Android 11+ scoped storage deletion via `MediaStore.createDeleteRequest`, safely falling back on legacy versions.
-
-### 🎨 Pro In-App Photo Editor
-- **Color Grading**:
-  - **Saturation**: Discrete slider from `-1` (pure B&W monochrome) to `0` (neutral) to `+10` (+10% saturation per step up to 2.0×).
-  - **Selective Skin Tone Reduction**: Slider from `-10` to `0` that gently pulls back excess red and warm facial flush while strictly protecting neutral tones (grays, whites, blacks) and preserving vibrant green foliage and blue skies.
-- **Light & Tone Adjustments**:
-  - **Highlights (Light)**: Lift shadows and brighten midtones (levels 0–10).
-  - **Darks & Contrast**: Deepen shadows and enrich black points for cinematic punch (levels 0–10).
-- **Curated Film Filters**:
-  - **Warm**: Golden-hour / Kodak Portra warmth and gentle shadow glow.
-  - **Cool**: Nordic / Fuji Provia crisp editorial coolness.
-  - **Noir**: High-contrast Leica monochrome with deep contrast roll-off.
-  - **Fade**: Lifted matte shadows with vintage analog emulsion texture.
-- **Natural Portrait Background Blur (Bokeh)**:
-  - Powered by **Google ML Kit Subject Segmentation** (`play-services-mlkit-subject-segmentation`).
-  - Employs an optical bokeh stack blur engine (`StackBlur`) across 5 adjustable intensity levels.
-  - Caches segmentation masks on source bitmaps for instant slider feedback and zero lag.
-- **Composition & Crop**:
-  - Freeform crop tool with interactive corner and edge drag handles and rule-of-thirds grid lines.
-  - Lossless 90-degree image rotation (`RotateRight`).
-- **Live Before/After Compare**: Press and hold the compare button to instantly preview the original unedited photo against your current edits.
-- **Lossless EXIF Export**: Save edits in-place or "Save as Copy", automatically carrying over all original camera capture metadata (exposure time, ISO, aperture, focal length, GPS coordinates, make, model, and original capture timestamps).
-
----
-
 ## Installation
 
 Pre-built APKs are published to GitHub Releases at https://github.com/cfegela/snappah/releases. Follow the step-by-step instructions below to install release **26.10.14**.
@@ -80,8 +26,6 @@ Pre-built APKs are published to GitHub Releases at https://github.com/cfegela/sn
    ```bash
    adb install -r Snappah-v26.10.14.apk
    ```
-
----
 
 ## Technical Architecture
 
