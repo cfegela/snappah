@@ -40,6 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -158,7 +159,7 @@ fun PhotoGrid(
     ) {
         itemsIndexed(
             items = photos,
-            key = { _, photo -> "${photo.id}_${photo.dateModified}" }
+            key = { _, photo -> photo.id }
         ) { index, photo ->
             PhotoThumbnailItem(
                 photo = photo,
@@ -175,6 +176,17 @@ fun PhotoThumbnailItem(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val imageRequest = remember(photo.uri, photo.dateModified) {
+        ImageRequest.Builder(context)
+            .data(photo.uri)
+            .memoryCacheKey("${photo.uri}_${photo.dateModified}_thumb")
+            .diskCacheKey("${photo.uri}_${photo.dateModified}_thumb")
+            .setParameter("is_thumbnail", true)
+            .size(360, 360)
+            .crossfade(false)
+            .build()
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -183,13 +195,7 @@ fun PhotoThumbnailItem(
             .clickable(onClick = onClick)
     ) {
         AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(photo.uri)
-                .memoryCacheKey("${photo.uri}_${photo.dateModified}")
-                .diskCacheKey("${photo.uri}_${photo.dateModified}")
-                .setParameter("date_modified", photo.dateModified, memoryCacheKey = "${photo.uri}_${photo.dateModified}")
-                .crossfade(true)
-                .build(),
+            model = imageRequest,
             contentDescription = photo.displayName,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()

@@ -185,9 +185,23 @@ fun CameraScreen(
         CameraSelector.DEFAULT_BACK_CAMERA
     }
 
-    LaunchedEffect(cameraProvider, previewView, cameraSelector) {
+    LaunchedEffect(cameraProvider, previewView, cameraSelector, showGallery) {
         val provider = cameraProvider ?: return@LaunchedEffect
         val pView = previewView ?: return@LaunchedEffect
+
+        if (showGallery) {
+            try {
+                provider.unbindAll()
+                camera = null
+                imageCapture = null
+                videoCapture = null
+                isStreamStreaming = false
+                Log.d(TAG, "Unbound camera while photo gallery is active")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to unbind camera for gallery", e)
+            }
+            return@LaunchedEffect
+        }
 
         isStreamStreaming = false
 
