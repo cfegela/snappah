@@ -17,7 +17,7 @@ Snappah combines the speed and simplicity of classic point-and-shoot photography
 * Scroll through pictures by swiping.
 * Share a photo by pressing the "share" icon.
 * Edit a photo by pressing the "edit" icon. Edits are destructive once saved. Drive fast. Take chances. Or save as a copy.
-* Delete a photo by long-pressing the delete icon.
+* Delete a photo by long-pressing the "delete" icon.
 
 ## Installation
 
