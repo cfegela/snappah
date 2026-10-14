@@ -60,11 +60,11 @@ Snappah combines the speed and simplicity of classic point-and-shoot photography
 
 ## Installation
 
-Pre-built APKs are published to GitHub Releases at https://github.com/cfegela/snappah/releases. Follow the step-by-step instructions below to install release **26.10.08**.
+Pre-built APKs are published to GitHub Releases at https://github.com/cfegela/snappah/releases. Follow the step-by-step instructions below to install release **26.10.14**.
 
 ### Option 1: Direct Install on Android Device
 
-1. **Download the APK**: Navigate to [GitHub Releases](https://github.com/cfegela/snappah/releases) (or the [v26.10.08 Release](https://github.com/cfegela/snappah/releases/tag/v26.10.08)) on your device browser and download [`Snappah-v26.10.08.apk`](https://github.com/cfegela/snappah/releases/download/v26.10.08/Snappah-v26.10.08.apk).
+1. **Download the APK**: Navigate to [GitHub Releases](https://github.com/cfegela/snappah/releases) (or the [v26.10.14 Release](https://github.com/cfegela/snappah/releases/tag/v26.10.14)) on your device browser and download [`Snappah-v26.10.14.apk`](https://github.com/cfegela/snappah/releases/download/v26.10.14/Snappah-v26.10.14.apk).
 2. **Allow Installation from Unknown Sources**: Tap the downloaded APK in your notification shade or Downloads folder. If prompted with a security dialog, tap **Settings** and enable **Allow from this source** (or navigate to **Settings** → **Apps** → **Special app access** → **Install unknown apps**).
 3. **Install the App**: Return to the installer prompt and tap **Install**.
 4. **Grant Permissions**: Once installed, tap **Open** and approve the required permissions (Camera, Microphone, and Photos/Storage) when prompted.
@@ -73,12 +73,12 @@ Pre-built APKs are published to GitHub Releases at https://github.com/cfegela/sn
 
 1. **Download the APK**:
    ```bash
-   curl -LO https://github.com/cfegela/snappah/releases/download/v26.10.08/Snappah-v26.10.08.apk
+   curl -LO https://github.com/cfegela/snappah/releases/download/v26.10.14/Snappah-v26.10.14.apk
    ```
 2. **Connect Device**: Connect your Android device to your computer via USB with **USB debugging** enabled.
 3. **Install the APK**:
    ```bash
-   adb install -r Snappah-v26.10.08.apk
+   adb install -r Snappah-v26.10.14.apk
    ```
 
 ---
