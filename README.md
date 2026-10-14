@@ -2,8 +2,6 @@
 
 A minimal, distraction-free point-and-shoot camera app for Android built with **Jetpack Compose** and **CameraX**, featuring an integrated media gallery and pro photo editor powered by **Google ML Kit** and **Media3 ExoPlayer**.
 
-Snappah combines the speed and simplicity of classic point-and-shoot photography with modern Android imaging capabilities. Frame your shot on a clean viewfinder with hardware Optical Image Stabilization (OIS) and real-time saturation enhancement, capture photos or record videos instantly, and jump straight into a full-featured media roll and advanced editing suite without leaving the app.
-
 ## Quickstart
 
 * Install the app using the instructions below.
