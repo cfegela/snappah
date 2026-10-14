@@ -378,8 +378,8 @@ fun queryRecentPhotos(context: Context, durationSeconds: Long = 60): List<Uri> {
     // 1. Try querying specifically in Pictures/simplah with DATE_ADDED >= cutoff
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         try {
-            val selection = "(${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? OR ${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?) AND ${MediaStore.Images.Media.DATE_ADDED} >= $cutoffSeconds"
-            val selectionArgs = arrayOf("%simplah%", "%simplah/%")
+            val selection = "(${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? OR ${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? OR ${MediaStore.Images.Media.RELATIVE_PATH} LIKE ? OR ${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?) AND ${MediaStore.Images.Media.DATE_ADDED} >= $cutoffSeconds"
+            val selectionArgs = arrayOf("%Snappah%", "%Snappah/%", "%simplah%", "%simplah/%")
             context.contentResolver.query(
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 projection,

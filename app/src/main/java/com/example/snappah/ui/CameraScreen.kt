@@ -65,6 +65,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ripple
@@ -101,6 +102,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.snappah.ui.theme.Black
 import com.example.snappah.ui.theme.SnappahBlue
 import com.example.snappah.ui.theme.White
+import com.saturatah.gallery.ui.GalleryApp
+import com.saturatah.gallery.ui.GalleryViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -120,12 +123,16 @@ private val RecordingRed = Color(0xFFE53935)
 
 @ExperimentalCamera2Interop
 @Composable
-fun CameraScreen() {
+fun CameraScreen(
+    galleryViewModel: GalleryViewModel? = null,
+    onRequestStoragePermission: () -> Unit = {}
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val hapticFeedback = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
 
+    var showGallery by remember { mutableStateOf(false) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
     var activeRecording by remember { mutableStateOf<Recording?>(null) }
@@ -285,37 +292,57 @@ fun CameraScreen() {
         }
     }
 
-    BackHandler(enabled = pagerState.currentPage != 0) {
+    BackHandler(enabled = !showGallery && pagerState.currentPage != 0) {
         coroutineScope.launch {
             pagerState.animateScrollToPage(0)
         }
     }
 
-    HorizontalPager(
-        state = pagerState,
-        beyondViewportPageCount = 1,
-        userScrollEnabled = !isRecording,
-        modifier = Modifier.fillMaxSize()
-    ) { page ->
-        when (page) {
-            0 -> {
+    Box(modifier = Modifier.fillMaxSize()) {
+        HorizontalPager(
+            state = pagerState,
+            beyondViewportPageCount = 1,
+            userScrollEnabled = !isRecording,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            when (page) {
+                0 -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Black)
+                    ) {
+            Column(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Top letterbox spacing above viewfinder with selfie camera toggle
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .background(Black)
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            // Top letterbox spacing above viewfinder with selfie camera toggle
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-            ) {
-                if (!isRecording) {
+                    if (!isRecording) {
+                        IconButton(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                focusTarget = null
+                                showGallery = true
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .size(40.dp)
+                                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoLibrary,
+                                contentDescription = "Open photo roll",
+                                tint = White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
                     IconButton(
                         onClick = {
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -556,6 +583,24 @@ fun CameraScreen() {
             }
         }
     }
+
+    if (showGallery) {
+        val vm = galleryViewModel ?: androidx.lifecycle.viewmodel.compose.viewModel()
+        LaunchedEffect(Unit) {
+            vm.loadPhotos()
+        }
+        GalleryApp(
+            viewModel = vm,
+            onRequestPermission = onRequestStoragePermission,
+            onBackToCamera = {
+                vm.clearSelection()
+                vm.cancelEditing()
+                showGallery = false
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
 }
 
 @Composable
@@ -637,7 +682,7 @@ private fun startVideoRecording(
         put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
         put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.Video.Media.RELATIVE_PATH, "Pictures/simplah")
+            put(MediaStore.Video.Media.RELATIVE_PATH, "Pictures/Snappah")
         }
     }
 
@@ -732,7 +777,7 @@ private suspend fun saveSaturatedPhoto(
         put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
         put(MediaStore.MediaColumns.DATE_ADDED, System.currentTimeMillis() / 1000)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/simplah")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Snappah")
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
     }

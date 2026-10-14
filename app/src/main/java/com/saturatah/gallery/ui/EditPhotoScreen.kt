@@ -1,0 +1,1391 @@
+package com.saturatah.gallery.ui
+
+import android.graphics.Bitmap
+import android.graphics.ColorMatrix as AndroidColorMatrix
+import android.graphics.Matrix
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.RotateRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.saturatah.gallery.model.Photo
+import com.saturatah.gallery.model.PhotoFilter
+import com.saturatah.gallery.ui.theme.PureBlack
+import com.saturatah.gallery.util.ColorAdjustmentHelper
+import com.saturatah.gallery.util.PortraitBlurEngine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.math.abs
+import kotlin.math.hypot
+
+enum class ActiveEditTool {
+    NONE, COLOR, LIGHT, CROP, FILTERS
+}
+
+private enum class DragHandle {
+    NONE, CENTER, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT, TOP, BOTTOM, LEFT, RIGHT
+}
+
+@Composable
+fun EditPhotoScreen(
+    photo: Photo,
+    onCancel: () -> Unit,
+    onSave: suspend (
+        rotationDegrees: Int,
+        cropLeft: Float,
+        cropTop: Float,
+        cropRight: Float,
+        cropBottom: Float,
+        saturationLevel: Int,
+        skinLevel: Int,
+        lightLevel: Int,
+        darkLevel: Int,
+        filter: PhotoFilter,
+        blurLevel: Int,
+        saveAsCopy: Boolean
+    ) -> Boolean,
+    loadBitmap: suspend (Photo) -> Bitmap?,
+    modifier: Modifier = Modifier
+) {
+    var activeTool by remember { mutableStateOf(ActiveEditTool.NONE) }
+
+    BackHandler {
+        if (activeTool != ActiveEditTool.NONE) {
+            activeTool = ActiveEditTool.NONE
+        } else {
+            onCancel()
+        }
+    }
+
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val hapticFeedback = LocalHapticFeedback.current
+
+    var sourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var isLoadingBitmap by remember { mutableStateOf(true) }
+    var isSaving by remember { mutableStateOf(false) }
+    var savingAsCopy by remember { mutableStateOf(false) }
+    var showSaveMenu by remember { mutableStateOf(false) }
+
+    var rotationDegrees by remember { mutableIntStateOf(0) }
+    var saturationLevel by remember { mutableIntStateOf(0) } // Discrete -1 (B&W), 0..10
+    var skinLevel by remember { mutableIntStateOf(0) } // Discrete -10 to 0 (reduction only)
+    var lightLevel by remember { mutableIntStateOf(0) } // Discrete 0 to 10
+    var darkLevel by remember { mutableIntStateOf(0) } // Discrete 0 to 10
+    var selectedFilter by remember { mutableStateOf(PhotoFilter.NONE) }
+
+    // Normalized freeform crop box (0.0 .. 1.0) relative to rotated bitmap bounds
+    var cropLeft by remember { mutableFloatStateOf(0f) }
+    var cropTop by remember { mutableFloatStateOf(0f) }
+    var cropRight by remember { mutableFloatStateOf(1f) }
+    var cropBottom by remember { mutableFloatStateOf(1f) }
+
+    // Portrait blur state: level 0 = off, 1–5 = intensity
+    var blurLevel by remember { mutableIntStateOf(0) }
+    var blurredPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var isComputingBlur by remember { mutableStateOf(false) }
+
+    // Press-and-hold to view unedited original photo
+    var isComparingOriginal by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            PortraitBlurEngine.clearCache()
+        }
+    }
+
+    LaunchedEffect(photo.id) {
+        PortraitBlurEngine.clearCache()
+        isLoadingBitmap = true
+        sourceBitmap = loadBitmap(photo)
+        isLoadingBitmap = false
+    }
+
+    // Helper to calculate rotated bitmap for display
+    val displayedBitmap = remember(sourceBitmap, rotationDegrees) {
+        val src = sourceBitmap ?: return@remember null
+        if (rotationDegrees % 360 == 0) {
+            src
+        } else {
+            val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+            Bitmap.createBitmap(src, 0, 0, src.width, src.height, matrix, true)
+        }
+    }
+
+    // Recompute portrait blur whenever the source or intensity changes
+    LaunchedEffect(displayedBitmap, blurLevel) {
+        if (blurLevel == 0 || displayedBitmap == null) {
+            blurredPreviewBitmap = null
+            return@LaunchedEffect
+        }
+        isComputingBlur = true
+        blurredPreviewBitmap = withContext(Dispatchers.Default) {
+            PortraitBlurEngine.applyPortraitBlur(displayedBitmap, blurLevel)
+        }
+        isComputingBlur = false
+    }
+
+    // Real-time GPU color filter for saturation, skin reduction, light, darks, and preset filters
+    val combinedColorFilter = remember(saturationLevel, skinLevel, lightLevel, darkLevel, selectedFilter) {
+        val colorToneMatrix = ColorAdjustmentHelper.createColorToneMatrix(saturationLevel, skinLevel)
+        val hasLight = lightLevel > 0
+        val hasDark = darkLevel > 0
+        val filterMatrix = selectedFilter.getColorMatrix()
+        if (colorToneMatrix == null && !hasLight && !hasDark && filterMatrix == null) return@remember null
+
+        val lightMatrix = if (hasLight) {
+            val c = 1.0f + lightLevel * 0.05f
+            val t = (1.0f - c) * 35.0f
+            AndroidColorMatrix(floatArrayOf(
+                c, 0f, 0f, 0f, t,
+                0f, c, 0f, 0f, t,
+                0f, 0f, c, 0f, t,
+                0f, 0f, 0f, 1f, 0f
+            ))
+        } else null
+
+        val darksMatrix = if (hasDark) {
+            val b = darkLevel * 3.5f
+            val s = 255.0f / (255.0f - b)
+            val t = -s * b
+            AndroidColorMatrix(floatArrayOf(
+                s, 0f, 0f, 0f, t,
+                0f, s, 0f, 0f, t,
+                0f, 0f, s, 0f, t,
+                0f, 0f, 0f, 1f, 0f
+            ))
+        } else null
+
+        val toneMatrix = when {
+            lightMatrix != null && darksMatrix != null -> {
+                AndroidColorMatrix().apply { setConcat(lightMatrix, darksMatrix) }
+            }
+            lightMatrix != null -> lightMatrix
+            darksMatrix != null -> darksMatrix
+            else -> null
+        }
+
+        val adjustmentsMatrix = when {
+            colorToneMatrix != null && toneMatrix != null -> {
+                AndroidColorMatrix().apply { setConcat(toneMatrix, colorToneMatrix) }
+            }
+            colorToneMatrix != null -> colorToneMatrix
+            toneMatrix != null -> toneMatrix
+            else -> null
+        }
+
+        val finalMatrix = when {
+            adjustmentsMatrix != null && filterMatrix != null -> {
+                AndroidColorMatrix().apply { setConcat(adjustmentsMatrix, filterMatrix) }
+            }
+            adjustmentsMatrix != null -> adjustmentsMatrix
+            filterMatrix != null -> filterMatrix
+            else -> null
+        }
+
+        finalMatrix?.let {
+            ColorFilter.colorMatrix(ColorMatrix(it.array))
+        }
+    }
+
+    fun handleRotate() {
+        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+        rotationDegrees = (rotationDegrees + 90) % 360
+        cropLeft = 0f
+        cropTop = 0f
+        cropRight = 1f
+        cropBottom = 1f
+    }
+
+    fun handleReset() {
+        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+        rotationDegrees = 0
+        saturationLevel = 0
+        skinLevel = 0
+        lightLevel = 0
+        darkLevel = 0
+        selectedFilter = PhotoFilter.NONE
+        blurLevel = 0
+        blurredPreviewBitmap = null
+        PortraitBlurEngine.clearCache()
+        cropLeft = 0f
+        cropTop = 0f
+        cropRight = 1f
+        cropBottom = 1f
+        isComparingOriginal = false
+        activeTool = ActiveEditTool.NONE
+    }
+
+    fun handleSave(asCopy: Boolean) {
+        if (isSaving) return
+        savingAsCopy = asCopy
+        isSaving = true
+        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+
+        coroutineScope.launch {
+            val success = onSave(rotationDegrees, cropLeft, cropTop, cropRight, cropBottom, saturationLevel, skinLevel, lightLevel, darkLevel, selectedFilter, blurLevel, asCopy)
+            if (success) {
+                val message = if (asCopy) "Copy saved" else "Photo saved"
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            } else {
+                val message = if (asCopy) "Failed to save copy" else "Failed to save photo"
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                isSaving = false
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(PureBlack)
+    ) {
+        // Top action bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            IconButton(
+                onClick = onCancel,
+                enabled = !isSaving,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Cancel",
+                    tint = Color.White
+                )
+            }
+
+            Text(
+                text = "Edit Photo",
+                color = Color.White,
+                fontSize = 18.sp,
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = { handleReset() },
+                    enabled = !isSaving,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.RestartAlt,
+                        contentDescription = "Reset",
+                        tint = Color.White
+                    )
+                }
+
+                Box {
+                    IconButton(
+                        onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showSaveMenu = true
+                        },
+                        enabled = !isSaving && !isLoadingBitmap,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    ) {
+                        if (isSaving) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Save,
+                                contentDescription = "Save options",
+                                tint = Color.White
+                            )
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = showSaveMenu,
+                        onDismissRequest = { showSaveMenu = false },
+                        shape = RoundedCornerShape(16.dp),
+                        containerColor = Color(0xFF222222),
+                        tonalElevation = 6.dp
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Save",
+                                    color = Color.White,
+                                    fontSize = 15.sp
+                                )
+                            },
+                            onClick = {
+                                showSaveMenu = false
+                                handleSave(asCopy = false)
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Save,
+                                    contentDescription = null,
+                                    tint = Color.White
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Save as copy",
+                                    color = Color.White,
+                                    fontSize = 15.sp
+                                )
+                            },
+                            onClick = {
+                                showSaveMenu = false
+                                handleSave(asCopy = true)
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = null,
+                                    tint = Color.White
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Center preview and interactive crop overlay
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isLoadingBitmap || displayedBitmap == null) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                val bmp = displayedBitmap
+                val composeBitmap = remember(bmp) { bmp.asImageBitmap() }
+                val blurredComposeBitmap = remember(blurredPreviewBitmap) { blurredPreviewBitmap?.asImageBitmap() }
+
+                BoxWithConstraints(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val density = LocalDensity.current
+                    val viewWidthPx = constraints.maxWidth.toFloat()
+                    val viewHeightPx = constraints.maxHeight.toFloat()
+                    val paddingPx = with(density) { 24.dp.toPx() }
+
+                    val availableWidth = (viewWidthPx - paddingPx * 2).coerceAtLeast(10f)
+                    val availableHeight = (viewHeightPx - paddingPx * 2).coerceAtLeast(10f)
+
+                    val bmpW = bmp.width.toFloat()
+                    val bmpH = bmp.height.toFloat()
+
+                    val scale = minOf(availableWidth / bmpW, availableHeight / bmpH)
+                    val imgDisplayW = bmpW * scale
+                    val imgDisplayH = bmpH * scale
+
+                    val imgOffsetX = (viewWidthPx - imgDisplayW) / 2f
+                    val imgOffsetY = (viewHeightPx - imgDisplayH) / 2f
+
+                    val touchRadius = with(density) { 36.dp.toPx() }
+                    var activeHandle by remember { mutableStateOf(DragHandle.NONE) }
+
+                    val hasVisualEdits = saturationLevel != 0 ||
+                        skinLevel != 0 ||
+                        lightLevel > 0 ||
+                        darkLevel > 0 ||
+                        selectedFilter != PhotoFilter.NONE ||
+                        blurLevel > 0
+
+                    val hasCropOrRotateEdits = rotationDegrees % 360 != 0 ||
+                        cropLeft > 0f || cropTop > 0f || cropRight < 1f || cropBottom < 1f
+
+                    val hasAnyEdits = hasVisualEdits || hasCropOrRotateEdits
+
+                    val canvasModifier = if (activeTool == ActiveEditTool.CROP) {
+                        Modifier
+                            .fillMaxSize()
+                            .pointerInput(imgDisplayW, imgDisplayH) {
+                                detectDragGestures(
+                                    onDragStart = { offset ->
+                                        val curRectL = imgOffsetX + cropLeft * imgDisplayW
+                                        val curRectT = imgOffsetY + cropTop * imgDisplayH
+                                        val curRectR = imgOffsetX + cropRight * imgDisplayW
+                                        val curRectB = imgOffsetY + cropBottom * imgDisplayH
+
+                                        val x = offset.x
+                                        val y = offset.y
+
+                                        fun dist(px: Float, py: Float) = hypot(x - px, y - py)
+
+                                        activeHandle = when {
+                                            dist(curRectL, curRectT) <= touchRadius -> DragHandle.TOP_LEFT
+                                            dist(curRectR, curRectT) <= touchRadius -> DragHandle.TOP_RIGHT
+                                            dist(curRectL, curRectB) <= touchRadius -> DragHandle.BOTTOM_LEFT
+                                            dist(curRectR, curRectB) <= touchRadius -> DragHandle.BOTTOM_RIGHT
+                                            abs(y - curRectT) <= touchRadius && x in curRectL..curRectR -> DragHandle.TOP
+                                            abs(y - curRectB) <= touchRadius && x in curRectL..curRectR -> DragHandle.BOTTOM
+                                            abs(x - curRectL) <= touchRadius && y in curRectT..curRectB -> DragHandle.LEFT
+                                            abs(x - curRectR) <= touchRadius && y in curRectT..curRectB -> DragHandle.RIGHT
+                                            x in curRectL..curRectR && y in curRectT..curRectB -> DragHandle.CENTER
+                                            else -> DragHandle.NONE
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        activeHandle = DragHandle.NONE
+                                    },
+                                    onDragCancel = {
+                                        activeHandle = DragHandle.NONE
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        if (activeHandle == DragHandle.NONE) return@detectDragGestures
+
+                                        val ndx = dragAmount.x / imgDisplayW
+                                        val ndy = dragAmount.y / imgDisplayH
+                                        val minNormSize = 0.08f
+
+                                        when (activeHandle) {
+                                            DragHandle.CENTER -> {
+                                                val w = cropRight - cropLeft
+                                                val h = cropBottom - cropTop
+                                                val newL = (cropLeft + ndx).coerceIn(0f, 1f - w)
+                                                val newT = (cropTop + ndy).coerceIn(0f, 1f - h)
+                                                cropLeft = newL
+                                                cropRight = newL + w
+                                                cropTop = newT
+                                                cropBottom = newT + h
+                                            }
+
+                                            DragHandle.TOP_LEFT -> {
+                                                cropLeft = (cropLeft + ndx).coerceIn(0f, cropRight - minNormSize)
+                                                cropTop = (cropTop + ndy).coerceIn(0f, cropBottom - minNormSize)
+                                            }
+
+                                            DragHandle.TOP_RIGHT -> {
+                                                cropRight = (cropRight + ndx).coerceIn(cropLeft + minNormSize, 1f)
+                                                cropTop = (cropTop + ndy).coerceIn(0f, cropBottom - minNormSize)
+                                            }
+
+                                            DragHandle.BOTTOM_LEFT -> {
+                                                cropLeft = (cropLeft + ndx).coerceIn(0f, cropRight - minNormSize)
+                                                cropBottom = (cropBottom + ndy).coerceIn(cropTop + minNormSize, 1f)
+                                            }
+
+                                            DragHandle.BOTTOM_RIGHT -> {
+                                                cropRight = (cropRight + ndx).coerceIn(cropLeft + minNormSize, 1f)
+                                                cropBottom = (cropBottom + ndy).coerceIn(cropTop + minNormSize, 1f)
+                                            }
+
+                                            DragHandle.TOP -> {
+                                                cropTop = (cropTop + ndy).coerceIn(0f, cropBottom - minNormSize)
+                                            }
+
+                                            DragHandle.BOTTOM -> {
+                                                cropBottom = (cropBottom + ndy).coerceIn(cropTop + minNormSize, 1f)
+                                            }
+
+                                            DragHandle.LEFT -> {
+                                                cropLeft = (cropLeft + ndx).coerceIn(0f, cropRight - minNormSize)
+                                            }
+
+                                            DragHandle.RIGHT -> {
+                                                cropRight = (cropRight + ndx).coerceIn(cropLeft + minNormSize, 1f)
+                                            }
+
+                                            else -> Unit
+                                        }
+                                    }
+                                )
+                            }
+                    } else if (hasAnyEdits) {
+                        Modifier
+                            .fillMaxSize()
+                            .pointerInput(hasAnyEdits) {
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed = false)
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    isComparingOriginal = true
+                                    try {
+                                        do {
+                                            val event = awaitPointerEvent()
+                                        } while (event.changes.any { it.pressed })
+                                    } finally {
+                                        isComparingOriginal = false
+                                    }
+                                }
+                            }
+                    } else {
+                        Modifier.fillMaxSize()
+                    }
+
+                    Canvas(modifier = canvasModifier) {
+                        // Use blurred composite if available and not currently comparing with original
+                        val activeBitmap = if (!isComparingOriginal && blurLevel > 0 && blurredPreviewBitmap != null) {
+                            blurredPreviewBitmap!!
+                        } else {
+                            bmp
+                        }
+                        val activeComposeBitmap = if (!isComparingOriginal && blurLevel > 0 && blurredComposeBitmap != null) {
+                            blurredComposeBitmap
+                        } else {
+                            composeBitmap
+                        }
+
+                        val effectiveColorFilter = if (isComparingOriginal) null else combinedColorFilter
+
+                        if (activeTool == ActiveEditTool.CROP) {
+                            // In CROP mode: draw full image with interactive crop overlay
+                            drawImage(
+                                image = activeComposeBitmap,
+                                dstOffset = IntOffset(imgOffsetX.toInt(), imgOffsetY.toInt()),
+                                dstSize = IntSize(imgDisplayW.toInt(), imgDisplayH.toInt()),
+                                colorFilter = effectiveColorFilter
+                            )
+
+                            val cLeft = imgOffsetX + cropLeft * imgDisplayW
+                            val cTop = imgOffsetY + cropTop * imgDisplayH
+                            val cRight = imgOffsetX + cropRight * imgDisplayW
+                            val cBottom = imgOffsetY + cropBottom * imgDisplayH
+                            val cWidth = cRight - cLeft
+                            val cHeight = cBottom - cTop
+
+                            val dimColor = Color.Black.copy(alpha = 0.65f)
+
+                            // Dimmed overlay outside crop box
+                            drawRect(
+                                color = dimColor,
+                                topLeft = Offset(0f, 0f),
+                                size = Size(size.width, cTop)
+                            )
+                            drawRect(
+                                color = dimColor,
+                                topLeft = Offset(0f, cBottom),
+                                size = Size(size.width, size.height - cBottom)
+                            )
+                            drawRect(
+                                color = dimColor,
+                                topLeft = Offset(0f, cTop),
+                                size = Size(cLeft, cHeight)
+                            )
+                            drawRect(
+                                color = dimColor,
+                                topLeft = Offset(cRight, cTop),
+                                size = Size(size.width - cRight, cHeight)
+                            )
+
+                            // Crop box outline
+                            drawRect(
+                                color = Color.White.copy(alpha = 0.85f),
+                                topLeft = Offset(cLeft, cTop),
+                                size = Size(cWidth, cHeight),
+                                style = Stroke(width = 1.5f.dp.toPx())
+                            )
+
+                            // 3x3 grid lines
+                            val gridStroke = Stroke(width = 1f.dp.toPx())
+                            val gridColor = Color.White.copy(alpha = 0.35f)
+
+                            drawLine(
+                                color = gridColor,
+                                start = Offset(cLeft + cWidth / 3f, cTop),
+                                end = Offset(cLeft + cWidth / 3f, cBottom),
+                                strokeWidth = gridStroke.width
+                            )
+                            drawLine(
+                                color = gridColor,
+                                start = Offset(cLeft + 2 * cWidth / 3f, cTop),
+                                end = Offset(cLeft + 2 * cWidth / 3f, cBottom),
+                                strokeWidth = gridStroke.width
+                            )
+                            drawLine(
+                                color = gridColor,
+                                start = Offset(cLeft, cTop + cHeight / 3f),
+                                end = Offset(cRight, cTop + cHeight / 3f),
+                                strokeWidth = gridStroke.width
+                            )
+                            drawLine(
+                                color = gridColor,
+                                start = Offset(cLeft, cTop + 2 * cHeight / 3f),
+                                end = Offset(cRight, cTop + 2 * cHeight / 3f),
+                                strokeWidth = gridStroke.width
+                            )
+
+                            // Corner L-handles
+                            val cornerLen = 18.dp.toPx()
+                            val cornerStroke = 3.5f.dp.toPx()
+                            val cornerColor = Color.White
+
+                            // Top-Left
+                            drawLine(cornerColor, Offset(cLeft, cTop), Offset(cLeft + cornerLen, cTop), cornerStroke)
+                            drawLine(cornerColor, Offset(cLeft, cTop), Offset(cLeft, cTop + cornerLen), cornerStroke)
+
+                            // Top-Right
+                            drawLine(cornerColor, Offset(cRight, cTop), Offset(cRight - cornerLen, cTop), cornerStroke)
+                            drawLine(cornerColor, Offset(cRight, cTop), Offset(cRight, cTop + cornerLen), cornerStroke)
+
+                            // Bottom-Left
+                            drawLine(cornerColor, Offset(cLeft, cBottom), Offset(cLeft + cornerLen, cBottom), cornerStroke)
+                            drawLine(cornerColor, Offset(cLeft, cBottom), Offset(cLeft, cBottom - cornerLen), cornerStroke)
+
+                            // Bottom-Right
+                            drawLine(cornerColor, Offset(cRight, cBottom), Offset(cRight - cornerLen, cBottom), cornerStroke)
+                            drawLine(cornerColor, Offset(cRight, cBottom), Offset(cRight, cBottom - cornerLen), cornerStroke)
+                        } else {
+                            // In NONE / COLOR / BLUR etc.: draw cropped image cleanly fitted
+                            // If comparing original and only crop/rotate was modified, show full uncropped frame
+                            val compareShowsUncropped = isComparingOriginal && !hasVisualEdits && hasCropOrRotateEdits
+                            val effCropL = if (compareShowsUncropped) 0f else cropLeft
+                            val effCropT = if (compareShowsUncropped) 0f else cropTop
+                            val effCropR = if (compareShowsUncropped) 1f else cropRight
+                            val effCropB = if (compareShowsUncropped) 1f else cropBottom
+
+                            val srcL = (effCropL * activeBitmap.width).toInt().coerceIn(0, activeBitmap.width - 1)
+                            val srcT = (effCropT * activeBitmap.height).toInt().coerceIn(0, activeBitmap.height - 1)
+                            val srcR = (effCropR * activeBitmap.width).toInt().coerceIn(srcL + 1, activeBitmap.width)
+                            val srcB = (effCropB * activeBitmap.height).toInt().coerceIn(srcT + 1, activeBitmap.height)
+                            val srcW = srcR - srcL
+                            val srcH = srcB - srcT
+
+                            val croppedScale = minOf(availableWidth / srcW.toFloat(), availableHeight / srcH.toFloat())
+                            val dispW = srcW.toFloat() * croppedScale
+                            val dispH = srcH.toFloat() * croppedScale
+                            val offX = (viewWidthPx - dispW) / 2f
+                            val offY = (viewHeightPx - dispH) / 2f
+
+                            drawImage(
+                                image = activeComposeBitmap,
+                                srcOffset = IntOffset(srcL, srcT),
+                                srcSize = IntSize(srcW, srcH),
+                                dstOffset = IntOffset(offX.toInt(), offY.toInt()),
+                                dstSize = IntSize(dispW.toInt(), dispH.toInt()),
+                                colorFilter = effectiveColorFilter
+                            )
+                        }
+                    }
+
+                    // "ORIGINAL" indicator pill — displays at the top center while pressing on the photo
+                    if (isComparingOriginal) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color.Black.copy(alpha = 0.72f),
+                            shadowElevation = 4.dp,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = 16.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Visibility,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "ORIGINAL",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 1.2.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Blur computing overlay — shows while ML Kit is running
+                    if (isComputingBlur) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Bottom editing controls - Menu or Active Tool Controls
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.85f))
+                .navigationBarsPadding()
+                .padding(vertical = 12.dp, horizontal = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            when (activeTool) {
+                ActiveEditTool.NONE -> {
+                    // Main Menu Bar: Crop, Color, Light, and Filters buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                activeTool = ActiveEditTool.CROP
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.White.copy(alpha = 0.12f),
+                            modifier = Modifier.height(42.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Crop,
+                                    contentDescription = "Crop",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Crop",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+                        }
+
+                        val hasColorAdjustments = saturationLevel != 0 || skinLevel != 0
+                        Surface(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                activeTool = ActiveEditTool.COLOR
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            color = if (hasColorAdjustments) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.12f),
+                            modifier = Modifier.height(42.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Palette,
+                                    contentDescription = "Color",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Color",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+                        }
+
+                        Surface(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                activeTool = ActiveEditTool.LIGHT
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.White.copy(alpha = 0.12f),
+                            modifier = Modifier.height(42.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.WbSunny,
+                                    contentDescription = "Light",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Light",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+                        }
+
+                        // Filters button — highlighted if either a color filter or blur is active
+                        val hasFilterOrBlur = selectedFilter != PhotoFilter.NONE || blurLevel > 0
+                        Surface(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                activeTool = ActiveEditTool.FILTERS
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            color = if (hasFilterOrBlur) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.12f),
+                            modifier = Modifier.height(42.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Filters",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Filters",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+                        }
+                    }
+                }
+
+                ActiveEditTool.COLOR -> {
+                    // Color and Skin Steppers with Checkmark button to return to menu
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Color stepper pill (uniform saturation)
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color.White.copy(alpha = 0.12f),
+                                modifier = Modifier.height(42.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.padding(horizontal = 6.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            if (saturationLevel > -1) {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                saturationLevel--
+                                            }
+                                        },
+                                        enabled = saturationLevel > -1,
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Remove,
+                                            contentDescription = "Decrease color",
+                                            tint = if (saturationLevel > -1) Color.White else Color.White.copy(alpha = 0.3f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+
+                                    Text(
+                                        text = when {
+                                            saturationLevel == -1 -> "Color: B&W"
+                                            saturationLevel == 0 -> "Color: 0"
+                                            else -> "Color: +$saturationLevel"
+                                        },
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        modifier = Modifier.padding(horizontal = 2.dp)
+                                    )
+
+                                    IconButton(
+                                        onClick = {
+                                            if (saturationLevel < 10) {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                saturationLevel++
+                                            }
+                                        },
+                                        enabled = saturationLevel < 10,
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "Increase color",
+                                            tint = if (saturationLevel < 10) Color.White else Color.White.copy(alpha = 0.3f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Skin stepper pill (only reduces skin tone)
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color.White.copy(alpha = 0.12f),
+                                modifier = Modifier.height(42.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.padding(horizontal = 6.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            if (skinLevel > -10) {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                skinLevel--
+                                            }
+                                        },
+                                        enabled = skinLevel > -10 && saturationLevel != -1,
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Remove,
+                                            contentDescription = "Reduce skin tone",
+                                            tint = if (skinLevel > -10 && saturationLevel != -1) Color.White else Color.White.copy(alpha = 0.3f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+
+                                    Text(
+                                        text = if (skinLevel == 0) "Skin: 0" else "Skin: $skinLevel",
+                                        color = if (saturationLevel != -1) Color.White else Color.White.copy(alpha = 0.4f),
+                                        fontSize = 13.sp,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        modifier = Modifier.padding(horizontal = 2.dp)
+                                    )
+
+                                    IconButton(
+                                        onClick = {
+                                            if (skinLevel < 0) {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                skinLevel++
+                                            }
+                                        },
+                                        enabled = skinLevel < 0 && saturationLevel != -1,
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "Restore skin tone",
+                                            tint = if (skinLevel < 0 && saturationLevel != -1) Color.White else Color.White.copy(alpha = 0.3f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        IconButton(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                activeTool = ActiveEditTool.NONE
+                            },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Color.White.copy(alpha = 0.15f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Done",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                }
+
+                ActiveEditTool.LIGHT -> {
+                    // Light and Darks Steppers with Checkmark button to return to menu
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Light stepper pill
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color.White.copy(alpha = 0.12f),
+                                modifier = Modifier.height(42.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.padding(horizontal = 6.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            if (lightLevel > 0) {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                lightLevel--
+                                            }
+                                        },
+                                        enabled = lightLevel > 0,
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Remove,
+                                            contentDescription = "Decrease light",
+                                            tint = if (lightLevel > 0) Color.White else Color.White.copy(alpha = 0.3f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+
+                                    Text(
+                                        text = if (lightLevel == 0) "Light: 0" else "Light: +$lightLevel",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        modifier = Modifier.padding(horizontal = 2.dp)
+                                    )
+
+                                    IconButton(
+                                        onClick = {
+                                            if (lightLevel < 10) {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                lightLevel++
+                                            }
+                                        },
+                                        enabled = lightLevel < 10,
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "Increase light",
+                                            tint = if (lightLevel < 10) Color.White else Color.White.copy(alpha = 0.3f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Darks stepper pill
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color.White.copy(alpha = 0.12f),
+                                modifier = Modifier.height(42.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.padding(horizontal = 6.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            if (darkLevel > 0) {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                darkLevel--
+                                            }
+                                        },
+                                        enabled = darkLevel > 0,
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Remove,
+                                            contentDescription = "Decrease darks",
+                                            tint = if (darkLevel > 0) Color.White else Color.White.copy(alpha = 0.3f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+
+                                    Text(
+                                        text = if (darkLevel == 0) "Darks: 0" else "Darks: +$darkLevel",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        modifier = Modifier.padding(horizontal = 2.dp)
+                                    )
+
+                                    IconButton(
+                                        onClick = {
+                                            if (darkLevel < 10) {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                darkLevel++
+                                            }
+                                        },
+                                        enabled = darkLevel < 10,
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "Increase darks",
+                                            tint = if (darkLevel < 10) Color.White else Color.White.copy(alpha = 0.3f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        IconButton(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                activeTool = ActiveEditTool.NONE
+                            },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Color.White.copy(alpha = 0.15f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Done",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                }
+
+                ActiveEditTool.CROP -> {
+                    // Rotate 90° button with Checkmark button to return to menu
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Spacer(modifier = Modifier.size(40.dp))
+
+                        Surface(
+                            onClick = { handleRotate() },
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.White.copy(alpha = 0.12f),
+                            modifier = Modifier.height(42.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 20.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.RotateRight,
+                                    contentDescription = "Rotate 90°",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = "Rotate 90°",
+                                    color = Color.White,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                activeTool = ActiveEditTool.NONE
+                            },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Color.White.copy(alpha = 0.15f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Done",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                }
+
+                ActiveEditTool.FILTERS -> {
+                    // Filters & Blur selection toolbar with Done button
+                    val filters = listOf(
+                        PhotoFilter.WARM,
+                        PhotoFilter.COOL,
+                        PhotoFilter.NOIR,
+                        PhotoFilter.FADE
+                    )
+                    val isBlurActive = blurLevel > 0
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            filters.forEach { filter ->
+                                val isSelected = selectedFilter == filter
+                                Surface(
+                                    onClick = {
+                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        selectedFilter = if (isSelected) PhotoFilter.NONE else filter
+                                    },
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.12f),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(42.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = if (filter == PhotoFilter.FADE) "Retro" else filter.displayName,
+                                            color = if (isSelected) PureBlack else Color.White,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            style = MaterialTheme.typography.labelMedium
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Blur toggle button — positioned to the right of Retro
+                            Surface(
+                                onClick = {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    blurLevel = if (blurLevel > 0) 0 else 1
+                                },
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (isBlurActive) Color.White else Color.White.copy(alpha = 0.12f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Blur",
+                                        color = if (isBlurActive) PureBlack else Color.White,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        IconButton(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                activeTool = ActiveEditTool.NONE
+                            },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Color.White.copy(alpha = 0.15f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Done",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

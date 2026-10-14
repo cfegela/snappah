@@ -1,0 +1,18 @@
+package com.saturatah.gallery.model
+
+import android.net.Uri
+
+data class Photo(
+    val id: Long,
+    val uri: Uri,
+    val displayName: String,
+    val dateAdded: Long,
+    val dateTaken: Long = 0L,
+    val dateModified: Long = 0L,
+    val size: Long,
+    val width: Int = 0,
+    val height: Int = 0,
+    val filePath: String? = null,
+    val isVideo: Boolean = false,
+    val duration: Long = 0L
+)
