@@ -87,7 +87,3 @@ snappah/
 ├── settings.gradle.kts                              # Project module definitions
 └── README.md
 ```
-
-## License
-
-This project is licensed under the terms of the project repository.
