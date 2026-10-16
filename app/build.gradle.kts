@@ -91,6 +91,9 @@ dependencies {
     // ML Kit Subject Segmentation for portrait background blur
     implementation("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
 
+    // ML Kit Barcode Scanning for fast on-device QR and barcode detection
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+
     // AndroidX ExifInterface for secure, modern EXIF metadata handling
     implementation("androidx.exifinterface:exifinterface:1.3.7")
 

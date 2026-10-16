@@ -28,10 +28,16 @@ import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
+import com.example.snappah.qr.QrCodeAnalyzer
+import com.example.snappah.qr.QrCodeOverlay
+import com.example.snappah.qr.QrCodeResult
+import java.util.concurrent.Executors
 import androidx.camera.video.MediaStoreOutputOptions
 import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
@@ -133,6 +139,7 @@ fun CameraScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var showGallery by remember { mutableStateOf(false) }
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
     var activeRecording by remember { mutableStateOf<Recording?>(null) }
@@ -147,6 +154,26 @@ fun CameraScreen(
     var isStreamStreaming by remember { mutableStateOf(false) }
     var latestPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var deviceRotation by remember { mutableIntStateOf(Surface.ROTATION_0) }
+    var imageAnalysis by remember { mutableStateOf<ImageAnalysis?>(null) }
+    var detectedQrResult by remember { mutableStateOf<QrCodeResult?>(null) }
+    var dismissedRawValue by remember { mutableStateOf<String?>(null) }
+    var lastQrDetectionTime by remember { mutableStateOf(0L) }
+    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            analysisExecutor.shutdown()
+        }
+    }
+
+    LaunchedEffect(detectedQrResult, lastQrDetectionTime) {
+        if (detectedQrResult != null) {
+            delay(1500)
+            if (System.currentTimeMillis() - lastQrDetectionTime >= 1200) {
+                detectedQrResult = null
+            }
+        }
+    }
 
     DisposableEffect(context) {
         val orientationEventListener = object : OrientationEventListener(context) {
@@ -163,6 +190,7 @@ fun CameraScreen(
                 if (deviceRotation != rotation) {
                     deviceRotation = rotation
                     imageCapture?.targetRotation = rotation
+                    imageAnalysis?.targetRotation = rotation
                     try {
                         videoCapture?.targetRotation = rotation
                     } catch (e: Exception) {
@@ -195,6 +223,9 @@ fun CameraScreen(
                 camera = null
                 imageCapture = null
                 videoCapture = null
+                imageAnalysis = null
+                detectedQrResult = null
+                dismissedRawValue = null
                 isStreamStreaming = false
                 Log.d(TAG, "Unbound camera while photo gallery is active")
             } catch (e: Exception) {
@@ -245,15 +276,69 @@ fun CameraScreen(
         }
         videoCapture = vc
 
+        val analysis = ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setTargetRotation(deviceRotation)
+            .build().apply {
+                setAnalyzer(
+                    analysisExecutor,
+                    QrCodeAnalyzer(
+                        isPaused = { isRecording || showGallery || pagerState.currentPage != 0 },
+                        isFrontCamera = { isFrontCamera },
+                        onQrCodeDetected = { result ->
+                            if (result != null) {
+                                if (result.rawValue != dismissedRawValue) {
+                                    detectedQrResult = result
+                                    lastQrDetectionTime = System.currentTimeMillis()
+                                }
+                            } else {
+                                if (System.currentTimeMillis() - lastQrDetectionTime > 1200L) {
+                                    detectedQrResult = null
+                                    dismissedRawValue = null
+                                }
+                            }
+                        }
+                    )
+                )
+            }
+        imageAnalysis = analysis
+
         try {
             provider.unbindAll()
-            val boundCamera = provider.bindToLifecycle(
-                lifecycleOwner,
-                cameraSelector,
-                preview,
-                capture,
-                vc
-            )
+            val boundCamera = try {
+                val useCaseGroup = UseCaseGroup.Builder()
+                    .addUseCase(preview)
+                    .addUseCase(capture)
+                    .addUseCase(analysis)
+                    .addUseCase(vc)
+                    .build()
+                provider.bindToLifecycle(
+                    lifecycleOwner,
+                    cameraSelector,
+                    useCaseGroup
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Binding with UseCaseGroup failed, trying standard binding", e)
+                try {
+                    provider.bindToLifecycle(
+                        lifecycleOwner,
+                        cameraSelector,
+                        preview,
+                        capture,
+                        vc,
+                        analysis
+                    )
+                } catch (e2: Exception) {
+                    Log.w(TAG, "Binding with 4 use cases failed, falling back to preview, capture, analysis", e2)
+                    provider.bindToLifecycle(
+                        lifecycleOwner,
+                        cameraSelector,
+                        preview,
+                        capture,
+                        analysis
+                    )
+                }
+            }
             camera = boundCamera
 
             // Also engage OIS in repeating session if supported so lens gyro is stable while framing
@@ -297,8 +382,6 @@ fun CameraScreen(
             soundPool.release()
         }
     }
-
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
     LaunchedEffect(pagerState.currentPage) {
         if (pagerState.currentPage != 0) {
@@ -361,6 +444,8 @@ fun CameraScreen(
                         onClick = {
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                             focusTarget = null
+                            detectedQrResult = null
+                            dismissedRawValue = null
                             isStreamStreaming = false
                             isFrontCamera = !isFrontCamera
                         },
@@ -472,6 +557,17 @@ fun CameraScreen(
                         }
                     )
                 }
+
+                // QR Code reader overlay (mainstream camera style)
+                if (!isRecording && isStreamStreaming) {
+                    QrCodeOverlay(
+                        qrResult = detectedQrResult,
+                        onDismiss = {
+                            dismissedRawValue = detectedQrResult?.rawValue
+                            detectedQrResult = null
+                        }
+                    )
+                }
             }
 
             // Bottom letterbox area: perfectly centers the shutter button between viewfinder and navigation bar
@@ -537,6 +633,8 @@ fun CameraScreen(
                                 onRecordingStarted = { recording ->
                                     activeRecording = recording
                                     isRecording = true
+                                    detectedQrResult = null
+                                    dismissedRawValue = null
                                     // Beep to signal recording start
                                     coroutineScope.launch(Dispatchers.IO) {
                                         try {
