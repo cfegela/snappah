@@ -28,6 +28,9 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val _selectedPhotoIndex = MutableStateFlow<Int?>(null)
     val selectedPhotoIndex: StateFlow<Int?> = _selectedPhotoIndex.asStateFlow()
 
+    private val _selectedPhotoIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedPhotoIds: StateFlow<Set<Long>> = _selectedPhotoIds.asStateFlow()
+
     private val _editingPhoto = MutableStateFlow<Photo?>(null)
     val editingPhoto: StateFlow<Photo?> = _editingPhoto.asStateFlow()
 
@@ -42,6 +45,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     fun loadPhotos() {
         viewModelScope.launch {
             _uiState.value = GalleryUiState.Loading
+            _selectedPhotoIds.value = emptySet()
             val photos = repository.loadPhotos()
             if (photos.isEmpty()) {
                 _uiState.value = GalleryUiState.Empty
@@ -57,6 +61,23 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearSelection() {
         _selectedPhotoIndex.value = null
+    }
+
+    fun startSelection(photoId: Long) {
+        _selectedPhotoIds.value = setOf(photoId)
+    }
+
+    fun togglePhotoSelection(photoId: Long) {
+        val current = _selectedPhotoIds.value
+        if (current.contains(photoId)) {
+            _selectedPhotoIds.value = current - photoId
+        } else {
+            _selectedPhotoIds.value = current + photoId
+        }
+    }
+
+    fun clearMultiSelection() {
+        _selectedPhotoIds.value = emptySet()
     }
 
     fun startEditing(photo: Photo) {
@@ -128,6 +149,45 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             onPhotoDeleted(photo)
         }
         return deleted
+    }
+
+    suspend fun deleteSelectedPhotos(): Pair<Int, Int> {
+        val current = _uiState.value
+        if (current !is GalleryUiState.Success) return Pair(0, 0)
+        val idsToDelete = _selectedPhotoIds.value
+        if (idsToDelete.isEmpty()) return Pair(0, 0)
+
+        val photosToDelete = current.photos.filter { it.id in idsToDelete }
+        var successCount = 0
+        var failCount = 0
+        val successfullyDeletedIds = mutableSetOf<Long>()
+
+        for (photo in photosToDelete) {
+            val deleted = repository.deletePhoto(photo)
+            if (deleted) {
+                successCount++
+                successfullyDeletedIds.add(photo.id)
+            } else {
+                failCount++
+            }
+        }
+
+        if (successfullyDeletedIds.isNotEmpty()) {
+            val remaining = current.photos.filter { it.id !in successfullyDeletedIds }
+            if (remaining.isEmpty()) {
+                _uiState.value = GalleryUiState.Empty
+                _selectedPhotoIndex.value = null
+            } else {
+                _uiState.value = GalleryUiState.Success(remaining)
+                val currentIndex = _selectedPhotoIndex.value
+                if (currentIndex != null && currentIndex >= remaining.size) {
+                    _selectedPhotoIndex.value = remaining.size - 1
+                }
+            }
+        }
+
+        _selectedPhotoIds.value = emptySet()
+        return Pair(successCount, failCount)
     }
 
     fun onPhotoDeleted(photo: Photo) {
