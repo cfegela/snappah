@@ -7,7 +7,6 @@ A minimal, distraction-free point-and-shoot camera app for Android built with **
 * Install the app using the instructions below.
 * Open the app.
 * Take pictures by pressing the big blue button.
-* Point the camera at any QR code to scan it live (URLs, Wi-Fi networks, contacts, phone numbers, and plain text with 1-tap actions).
 * Take selfies by hitting the "change camera" icon in the upper-right corner and press the big blue button.
 * Take video by long pressing the big blue button to start recording. Press the big red button to stop recording.
 * Swipe left to review photos taken in the last minute. Delete them if they suck.
