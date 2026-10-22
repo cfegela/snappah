@@ -20,9 +20,9 @@ A minimal, distraction-free point-and-shoot camera app for Android built with **
 
 ## Installation
 
-Pre-built APKs are published to GitHub Releases at https://github.com/cfegela/snappah/releases. Follow the step-by-step instructions below to install release **26.10.14**.
+Pre-built APKs are published to GitHub Releases at https://github.com/cfegela/snappah/releases. Follow the step-by-step instructions below to install release **26.10.22**.
 
-1. **Download the APK**: Navigate to [GitHub Releases](https://github.com/cfegela/snappah/releases) (or the [v26.10.14 Release](https://github.com/cfegela/snappah/releases/tag/v26.10.14)) on your device browser and download [`Snappah-v26.10.14.apk`](https://github.com/cfegela/snappah/releases/download/v26.10.14/Snappah-v26.10.14.apk).
+1. **Download the APK**: Navigate to [GitHub Releases](https://github.com/cfegela/snappah/releases) (or the [v26.10.22 Release](https://github.com/cfegela/snappah/releases/tag/v26.10.22)) on your device browser and download [`Snappah-v26.10.22.apk`](https://github.com/cfegela/snappah/releases/download/v26.10.22/Snappah-v26.10.22.apk).
 2. **Allow Installation from Unknown Sources**: Tap the downloaded APK in your notification shade or Downloads folder. If prompted with a security dialog, tap **Settings** and enable **Allow from this source** (or navigate to **Settings** → **Apps** → **Special app access** → **Install unknown apps**).
 3. **Install the App**: Return to the installer prompt and tap **Install**.
 4. **Grant Permissions**: Once installed, tap **Open** and approve the required permissions (Camera, Microphone, and Photos/Storage) when prompted.
