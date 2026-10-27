@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.snappah"
         minSdk = 26
         targetSdk = 36
-        versionCode = 261022
-        versionName = "26.10.22"
+        versionCode = 261027
+        versionName = "26.10.27"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
