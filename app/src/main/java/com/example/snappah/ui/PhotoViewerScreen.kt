@@ -1,8 +1,10 @@
 package com.example.snappah.ui
 
 import android.app.Activity
+import android.content.ClipData
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
@@ -13,8 +15,10 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,11 +37,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +52,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -53,6 +60,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,6 +75,7 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "PhotoViewerScreen"
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PhotoViewerScreen(
     isActive: Boolean,
@@ -260,18 +271,54 @@ fun PhotoViewerScreen(
             if (recentPhotos.isNotEmpty()) {
                 val currentUri = recentPhotos.getOrNull(photoPagerState.currentPage)
                 if (currentUri != null) {
-                    IconButton(
-                        onClick = { handleDelete(currentUri) },
-                        enabled = !isDeleting,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete photo",
-                            tint = White
-                        )
+                        IconButton(
+                            onClick = { sharePhoto(context, currentUri) },
+                            enabled = !isDeleting,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share photo",
+                                tint = White
+                            )
+                        }
+
+                        val viewConfiguration = LocalViewConfiguration.current
+                        val customViewConfiguration = remember(viewConfiguration) {
+                            object : ViewConfiguration by viewConfiguration {
+                                override val longPressTimeoutMillis: Long = 500L
+                            }
+                        }
+
+                        CompositionLocalProvider(LocalViewConfiguration provides customViewConfiguration) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                    .clip(CircleShape)
+                                    .combinedClickable(
+                                        enabled = !isDeleting,
+                                        role = Role.Button,
+                                        onClickLabel = null,
+                                        onLongClickLabel = "Delete photo",
+                                        onClick = {},
+                                        onLongClick = { handleDelete(currentUri) }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete photo",
+                                    tint = White
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -317,6 +364,25 @@ private fun PhotoPage(
                 color = SnappahBlue
             )
         }
+    }
+}
+
+private fun sharePhoto(context: Context, uri: Uri) {
+    val mimeType = context.contentResolver.getType(uri) ?: "image/*"
+    val isVideo = mimeType.startsWith("video/")
+    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+        type = mimeType
+        putExtra(Intent.EXTRA_STREAM, uri)
+        clipData = ClipData.newRawUri("", uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    try {
+        val chooser = Intent.createChooser(shareIntent, if (isVideo) "Share video" else "Share photo")
+        context.startActivity(chooser)
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed launching share intent", e)
+        Toast.makeText(context, "No app available to share", Toast.LENGTH_SHORT).show()
     }
 }
 
